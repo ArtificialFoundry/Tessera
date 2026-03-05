@@ -1,0 +1,6 @@
+[Unit]
+Description=Tessera DHCP failover voter
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/tessera-voter.sh

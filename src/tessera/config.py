@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     vote_ttl: int = 90
     sync_interval: int = 300
     voters: str = "voter-1,voter-2,voter-3,voter-4,voter-5"
+    backup_dir: Path = Path("/var/lib/tessera/backups")
+    max_backups: int = 50
+    auto_backup_interval: int = 3600
+    backup_cron_schedule: str = ""
+    enforcement_interval: int = 300
 
     @property
     def voter_list(self) -> list[str]:

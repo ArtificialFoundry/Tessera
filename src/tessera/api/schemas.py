@@ -195,3 +195,127 @@ class AllLeasesResponse(BaseModel):
     """Leases across all scopes."""
 
     scopes: dict[str, list[dict[str, object]]]
+
+
+# -- Backups ------------------------------------------------------------------
+
+
+class BackupManifestResponse(BaseModel):
+    """A single backup's metadata."""
+
+    backup_id: str
+    created_at: float
+    source: str
+    description: str
+    scope_count: int
+    reservation_count: int
+
+
+class BackupListResponse(BaseModel):
+    """List of all backups."""
+
+    backups: list[BackupManifestResponse]
+
+
+class BackupDetailResponse(BaseModel):
+    """Full backup data including scopes."""
+
+    manifest: BackupManifestResponse
+    scopes: list[dict[str, object]]
+
+
+class BackupCreateRequest(BaseModel):
+    """Request to create a backup."""
+
+    description: str = ""
+
+
+class RestoreRequest(BaseModel):
+    """Request to restore from a backup."""
+
+    dry_run: bool = True
+
+
+class RestoreResponse(BaseModel):
+    """Result of a restore operation."""
+
+    backup_id: str
+    dry_run: bool
+    changes: list[dict[str, str]]
+    total_changes: int
+
+
+# -- Enforcement --------------------------------------------------------------
+
+
+class EnforcementStatusResponse(BaseModel):
+    """Full enforcement engine status."""
+
+    mode: str
+    pinned_backup_id: str
+    check_interval: int
+    last_check: float
+    last_drift: float
+    drift_count: int
+    restore_count: int
+    backup_on_pin: bool = True
+    auto_restore_cooldown: int = 60
+    max_history: int = 50
+    history: list[dict[str, object]]
+
+
+class EnforcementModeRequest(BaseModel):
+    """Request to change enforcement mode."""
+
+    mode: str
+
+
+class PinBackupRequest(BaseModel):
+    """Request to pin a backup as desired state."""
+
+    backup_id: str
+
+
+class DriftCheckResponse(BaseModel):
+    """Result of a drift check."""
+
+    drift_detected: bool
+    changes: list[dict[str, str]]
+    drift_summary: list[dict[str, str]] = []
+    total_changes: int = 0
+    action: str = "none"
+
+
+class BackupSettingsRequest(BaseModel):
+    """Request to update backup engine settings."""
+
+    auto_enabled: bool | None = None
+    cron_schedule: str | None = None
+    max_backups: int | None = None
+
+
+class BackupSettingsResponse(BaseModel):
+    """Current backup engine settings."""
+
+    auto_enabled: bool
+    cron_schedule: str
+    max_backups: int
+    stored_backups: int
+    next_run: float
+    backup_dir: str
+
+
+class EnforcementSettingsRequest(BaseModel):
+    """Request to update enforcement settings."""
+
+    check_interval: int | None = None
+    backup_on_pin: bool | None = None
+    auto_restore_cooldown: int | None = None
+    max_history: int | None = None
+
+
+class AcceptDriftResponse(BaseModel):
+    """Result of accepting drift."""
+
+    new_backup_id: str
+    message: str

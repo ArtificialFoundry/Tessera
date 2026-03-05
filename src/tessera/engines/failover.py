@@ -99,7 +99,8 @@ class FailoverEngine(Engine):
 
     Collects votes from VMs about primary DHCP health.
     When quorum says primary is down for enough consecutive rounds,
-    activates standby DHCP scopes.
+    activates standby DHCP scopes. When primary recovers,
+    deactivates standby scopes (failback).
 
     Attributes:
         name: Engine identifier.
@@ -133,6 +134,24 @@ class FailoverEngine(Engine):
         self._consecutive_up: int = 0
         self._transitions: list[TransitionEvent] = []
         self._last_evaluation: float = 0.0
+        self._standby_client: Any = None
+        self._scope_names: list[str] = []
+
+    def set_standby_client(self, client: Any) -> None:
+        """Set the standby Technitium client for scope activation.
+
+        Args:
+            client: TechnitiumClient for the standby server.
+        """
+        self._standby_client = client
+
+    def set_scope_names(self, names: list[str]) -> None:
+        """Set the list of scope names to manage on failover.
+
+        Args:
+            names: DHCP scope names to enable/disable on standby.
+        """
+        self._scope_names = names
 
     @property
     def state(self) -> FailoverState:
@@ -213,8 +232,35 @@ class FailoverEngine(Engine):
         cutoff = time.time() - self._vote_ttl
         return [v for v in self._votes.values() if v.received_at >= cutoff]
 
-    def evaluate_quorum(self) -> dict[str, Any]:
+    async def _activate_standby_scopes(self) -> None:
+        """Enable all DHCP scopes on the standby server."""
+        if not self._standby_client:
+            logger.error("No standby client configured — cannot activate scopes")
+            return
+        for name in self._scope_names:
+            try:
+                await self._standby_client.enable_scope(name)
+                logger.info("Enabled standby scope: %s", name)
+            except Exception:
+                logger.exception("Failed to enable standby scope: %s", name)
+
+    async def _deactivate_standby_scopes(self) -> None:
+        """Disable all DHCP scopes on the standby server."""
+        if not self._standby_client:
+            logger.error("No standby client configured — cannot deactivate scopes")
+            return
+        for name in self._scope_names:
+            try:
+                await self._standby_client.disable_scope(name)
+                logger.info("Disabled standby scope: %s", name)
+            except Exception:
+                logger.exception("Failed to disable standby scope: %s", name)
+
+    async def evaluate_quorum(self) -> dict[str, Any]:
         """Evaluate current votes and potentially transition state.
+
+        When a transition occurs, scopes on the standby server are
+        enabled (failover) or disabled (failback) automatically.
 
         Returns:
             Dict with evaluation results including quorum status.
@@ -252,6 +298,7 @@ class FailoverEngine(Engine):
             )
             self._transitions.append(event)
             logger.warning("FAILOVER ACTIVATED: %s", event.reason)
+            await self._activate_standby_scopes()
 
         elif (
             self._state == FailoverState.ACTIVE
@@ -269,6 +316,7 @@ class FailoverEngine(Engine):
             )
             self._transitions.append(event)
             logger.info("FAILBACK: returned to standby: %s", event.reason)
+            await self._deactivate_standby_scopes()
 
         return {
             "state": self._state.value,

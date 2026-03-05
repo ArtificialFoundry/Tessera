@@ -184,9 +184,7 @@ class TechnitiumClient(Engine):
         """
         await self._request("POST", "/api/dhcp/scopes/delete", data={"name": name})
 
-    async def remove_lease(
-        self, scope_name: str, *, address: str
-    ) -> None:
+    async def remove_lease(self, scope_name: str, *, address: str) -> None:
         """Remove/convert a dynamic lease from a scope.
 
         Args:

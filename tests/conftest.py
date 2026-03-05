@@ -10,17 +10,22 @@ from httpx import ASGITransport, AsyncClient
 
 from tessera.app import create_app
 from tessera.deps import (
+    get_backup_engine,
+    get_enforcement_engine,
     get_engine_registry,
     get_failover_engine,
     get_module_registry,
     get_technitium_client,
 )
+from tessera.engines.backup import BackupEngine
+from tessera.engines.enforcement import EnforcementEngine
 from tessera.engines.failover import FailoverEngine
 from tessera.engines.technitium import TechnitiumClient
 from tessera.registry import EngineRegistry, ModuleRegistry
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
+    from pathlib import Path
 
 
 @pytest.fixture
@@ -79,11 +84,34 @@ def mock_technitium() -> AsyncMock:
 
 
 @pytest.fixture
+async def backup_engine(tmp_path: Path, mock_technitium: AsyncMock) -> BackupEngine:
+    """Fresh backup engine with temp directory."""
+    engine = BackupEngine(
+        backup_dir=tmp_path / "backups",
+        max_backups=10,
+        auto_interval=0,
+    )
+    engine.set_primary_client(mock_technitium)
+    await engine.start()
+    return engine
+
+
+@pytest.fixture
+def enforcement_engine(backup_engine: BackupEngine) -> EnforcementEngine:
+    """Fresh enforcement engine with backup engine."""
+    engine = EnforcementEngine(check_interval=60)
+    engine.set_backup_engine(backup_engine)
+    return engine
+
+
+@pytest.fixture
 async def client(
     engine_registry: EngineRegistry,
     module_registry: ModuleRegistry,
     failover_engine: FailoverEngine,
     mock_technitium: AsyncMock,
+    backup_engine: BackupEngine,
+    enforcement_engine: EnforcementEngine,
 ) -> AsyncGenerator[AsyncClient]:
     """Async HTTP client with DI overrides for isolated tests."""
     app = create_app()
@@ -91,6 +119,8 @@ async def client(
     app.dependency_overrides[get_module_registry] = lambda: module_registry
     app.dependency_overrides[get_failover_engine] = lambda: failover_engine
     app.dependency_overrides[get_technitium_client] = lambda: mock_technitium
+    app.dependency_overrides[get_backup_engine] = lambda: backup_engine
+    app.dependency_overrides[get_enforcement_engine] = lambda: enforcement_engine
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c

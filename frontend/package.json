@@ -1,0 +1,21 @@
+{
+  "name": "tessera-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@preact/signals": "^2.8.1",
+    "preact": "^10.28.4"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.3",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1"
+  }
+}

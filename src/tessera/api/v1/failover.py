@@ -38,7 +38,7 @@ async def submit_vote(
     except AuthenticationError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
 
-    failover.evaluate_quorum()
+    await failover.evaluate_quorum()
 
     return VoteResponse(
         accepted=True,
@@ -52,7 +52,7 @@ async def failover_status(
     failover: FailoverEngine = Depends(get_failover_engine),
 ) -> FailoverStatusResponse:
     """Get current failover status, votes, and transition history."""
-    evaluation = failover.evaluate_quorum()
+    evaluation = await failover.evaluate_quorum()
     votes = failover.votes
     transitions = failover.transitions
 

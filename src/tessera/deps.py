@@ -11,6 +11,8 @@ import logging
 from functools import lru_cache
 
 from tessera.config import Settings
+from tessera.engines.backup import BackupEngine
+from tessera.engines.enforcement import EnforcementEngine
 from tessera.engines.failover import FailoverEngine
 from tessera.engines.scope_sync import ScopeSyncEngine
 from tessera.engines.technitium import TechnitiumClient
@@ -49,6 +51,9 @@ def get_engine_registry() -> EngineRegistry:
     primary_client = TechnitiumClient(base_url=settings.primary_url, token=token)
     registry.register(primary_client)
 
+    standby_client = TechnitiumClient(base_url=settings.standby_url, token=token)
+    # Don't register standby as engine (same name conflict)
+
     failover = FailoverEngine(
         quorum=settings.quorum,
         failover_rounds=settings.failover_rounds,
@@ -56,15 +61,27 @@ def get_engine_registry() -> EngineRegistry:
         vote_ttl=settings.vote_ttl,
         voter_keys=voter_keys,
     )
+    failover.set_standby_client(standby_client)
     registry.register(failover)
-
-    standby_client = TechnitiumClient(base_url=settings.standby_url, token=token)
-    # Don't register standby as engine (same name conflict)
-    # Store it for scope_sync
 
     scope_sync = ScopeSyncEngine(sync_interval=settings.sync_interval)
     scope_sync.set_clients(primary_client, standby_client)
     registry.register(scope_sync)
+
+    backup = BackupEngine(
+        backup_dir=settings.backup_dir,
+        max_backups=settings.max_backups,
+        auto_interval=settings.auto_backup_interval,
+        cron_schedule=settings.backup_cron_schedule,
+    )
+    backup.set_primary_client(primary_client)
+    registry.register(backup)
+
+    enforcement = EnforcementEngine(
+        check_interval=settings.enforcement_interval,
+    )
+    enforcement.set_backup_engine(backup)
+    registry.register(enforcement)
 
     return registry
 
@@ -80,6 +97,20 @@ def get_technitium_client() -> TechnitiumClient:
     """Return the primary Technitium client from the registry."""
     engine = get_engine_registry().get("technitium")
     assert isinstance(engine, TechnitiumClient)
+    return engine
+
+
+def get_backup_engine() -> BackupEngine:
+    """Return the backup engine from the registry."""
+    engine = get_engine_registry().get("backup")
+    assert isinstance(engine, BackupEngine)
+    return engine
+
+
+def get_enforcement_engine() -> EnforcementEngine:
+    """Return the enforcement engine from the registry."""
+    engine = get_engine_registry().get("enforcement")
+    assert isinstance(engine, EnforcementEngine)
     return engine
 
 

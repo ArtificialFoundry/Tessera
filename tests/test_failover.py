@@ -78,7 +78,7 @@ class TestFailoverEngine:
         with pytest.raises(AuthenticationError, match="Invalid signature"):
             failover_engine.submit_vote("voter-1", "up", ts, "badsig")
 
-    def test_failover_transition(
+    async def test_failover_transition(
         self, failover_engine: FailoverEngine, voter_keys: dict[str, str]
     ) -> None:
         """Enough down rounds triggers failover."""
@@ -87,12 +87,12 @@ class TestFailoverEngine:
             for voter in ["voter-1", "voter-2"]:
                 sig = _sign(voter, "down", ts, voter_keys[voter])
                 failover_engine.submit_vote(voter, "down", ts, sig)
-            failover_engine.evaluate_quorum()
+            await failover_engine.evaluate_quorum()
 
         assert failover_engine.state == FailoverState.ACTIVE
         assert len(failover_engine.transitions) == 1
 
-    def test_failback_transition(
+    async def test_failback_transition(
         self, failover_engine: FailoverEngine, voter_keys: dict[str, str]
     ) -> None:
         """Enough up rounds after failover triggers failback."""
@@ -102,7 +102,7 @@ class TestFailoverEngine:
             for voter in ["voter-1", "voter-2"]:
                 sig = _sign(voter, "down", ts, voter_keys[voter])
                 failover_engine.submit_vote(voter, "down", ts, sig)
-            failover_engine.evaluate_quorum()
+            await failover_engine.evaluate_quorum()
         assert failover_engine.state == FailoverState.ACTIVE
 
         # Then trigger failback
@@ -111,11 +111,11 @@ class TestFailoverEngine:
             for voter in ["voter-1", "voter-2"]:
                 sig = _sign(voter, "up", ts, voter_keys[voter])
                 failover_engine.submit_vote(voter, "up", ts, sig)
-            failover_engine.evaluate_quorum()
+            await failover_engine.evaluate_quorum()
         assert failover_engine.state == FailoverState.STANDBY
         assert len(failover_engine.transitions) == 2
 
-    def test_no_quorum_no_transition(
+    async def test_no_quorum_no_transition(
         self, failover_engine: FailoverEngine, voter_keys: dict[str, str]
     ) -> None:
         """Without quorum, no state change happens."""
@@ -123,7 +123,7 @@ class TestFailoverEngine:
         sig = _sign("voter-1", "down", ts, voter_keys["voter-1"])
         failover_engine.submit_vote("voter-1", "down", ts, sig)
         for _ in range(5):
-            failover_engine.evaluate_quorum()
+            await failover_engine.evaluate_quorum()
         assert failover_engine.state == FailoverState.STANDBY
 
     def test_get_metrics(self, failover_engine: FailoverEngine) -> None:

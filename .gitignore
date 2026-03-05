@@ -8,3 +8,5 @@ __pycache__/
 dist/
 build/
 .env
+node_modules/
+src/tessera/static/dist/
