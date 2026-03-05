@@ -9,15 +9,15 @@ uv run pytest                          # Run tests (must pass)
 uv run ruff check src/ tests/          # Lint (must be clean)
 uv run ruff format --check src/ tests/ # Format check
 uv run mypy src/                       # Type check (strict, must pass)
-uv run uvicorn skeleton.app:create_app --factory --reload  # Dev server
+uv run uvicorn tessera.app:create_app --factory --reload  # Dev server
 ```
 
 **Key paths:**
-- Source: `src/skeleton/`
+- Source: `src/tessera/`
 - Tests: `tests/`
-- API routes: `src/skeleton/api/v1/`
-- DI providers: `src/skeleton/deps.py`
-- Config: `src/skeleton/config.py` (env vars prefixed `SKELETON_`)
+- API routes: `src/tessera/api/v1/`
+- DI providers: `src/tessera/deps.py`
+- Config: `src/tessera/config.py` (env vars prefixed `TESSERA_`)
 
 ## What This Project Is
 
@@ -44,17 +44,17 @@ Request → FastAPI Router → Depends(get_*_registry) → Registry → Response
 
 | Path | Purpose |
 |---|---|
-| `src/skeleton/__init__.py` | Package root, version docstring |
-| `src/skeleton/__main__.py` | `python -m skeleton` entry point |
-| `src/skeleton/app.py` | `create_app()` factory + lifespan |
-| `src/skeleton/config.py` | `Settings` (pydantic-settings) |
-| `src/skeleton/database.py` | SQLAlchemy engine, session factory, `Base` |
-| `src/skeleton/deps.py` | FastAPI DI providers |
-| `src/skeleton/exceptions.py` | Exception hierarchy |
-| `src/skeleton/registry.py` | `EngineRegistry`, `ModuleRegistry`, `Engine` base |
-| `src/skeleton/api/schemas.py` | Pydantic response models |
-| `src/skeleton/api/v1/health.py` | `/health`, `/ping` endpoints |
-| `src/skeleton/api/v1/registry.py` | `/registry/engines`, `/registry/modules` |
+| `src/tessera/__init__.py` | Package root, version docstring |
+| `src/tessera/__main__.py` | `python -m tessera` entry point |
+| `src/tessera/app.py` | `create_app()` factory + lifespan |
+| `src/tessera/config.py` | `Settings` (pydantic-settings) |
+| `src/tessera/database.py` | SQLAlchemy engine, session factory, `Base` |
+| `src/tessera/deps.py` | FastAPI DI providers |
+| `src/tessera/exceptions.py` | Exception hierarchy |
+| `src/tessera/registry.py` | `EngineRegistry`, `ModuleRegistry`, `Engine` base |
+| `src/tessera/api/schemas.py` | Pydantic response models |
+| `src/tessera/api/v1/health.py` | `/health`, `/ping` endpoints |
+| `src/tessera/api/v1/registry.py` | `/registry/engines`, `/registry/modules` |
 | `tests/conftest.py` | Shared fixtures (registries, async client with DI overrides) |
 | `migrations/env.py` | Alembic async migration env |
 
@@ -82,7 +82,7 @@ Request → FastAPI Router → Depends(get_*_registry) → Registry → Response
 ## How to Add Things
 
 ### New Engine
-1. Subclass `Engine` in a new module under `src/skeleton/`
+1. Subclass `Engine` in a new module under `src/tessera/`
 2. Set `name`, `version`, `description`, `depends_on`
 3. Override `start()`, `stop()`, `check_health()`, `get_metrics()`
 4. Register in app lifespan or a setup function
@@ -90,7 +90,7 @@ Request → FastAPI Router → Depends(get_*_registry) → Registry → Response
 6. **Update this file:** add to Directory Map + Changelog
 
 ### New API Endpoint
-1. Create router in `src/skeleton/api/v1/<name>.py`
+1. Create router in `src/tessera/api/v1/<name>.py`
 2. Add Pydantic response models to `api/schemas.py`
 3. Use `Depends()` for any shared state
 4. Include router in `api/v1/__init__.py`
