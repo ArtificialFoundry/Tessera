@@ -66,6 +66,9 @@ class ScopeSyncEngine(Engine):
     async def start(self) -> None:
         """Start the periodic sync task."""
         if self._primary_client and self._standby_client:
+            # Standby client is not in the engine registry, start it manually
+            if hasattr(self._standby_client, "start"):
+                await self._standby_client.start()
             self._task = asyncio.create_task(self._sync_loop())
             logger.info("ScopeSyncEngine started (interval=%ds)", self._sync_interval)
 
@@ -76,6 +79,8 @@ class ScopeSyncEngine(Engine):
             with contextlib.suppress(asyncio.CancelledError):
                 await self._task
             self._task = None
+        if self._standby_client and hasattr(self._standby_client, "stop"):
+            await self._standby_client.stop()
         logger.info("ScopeSyncEngine stopped")
 
     async def _sync_loop(self) -> None:

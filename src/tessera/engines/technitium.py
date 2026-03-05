@@ -197,7 +197,7 @@ class TechnitiumClient(Engine):
         data: dict[str, Any] = {
             "name": scope_name,
             "hardwareAddress": hardware_address,
-            "address": address,
+            "ipAddress": address,
         }
         if host_name:
             data["hostName"] = host_name

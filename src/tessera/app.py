@@ -15,6 +15,11 @@ from tessera.deps import get_engine_registry, get_settings
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
