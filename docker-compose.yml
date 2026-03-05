@@ -1,0 +1,22 @@
+services:
+  tessera:
+    build: .
+    image: tessera:latest
+    container_name: tessera
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - TESSERA_PRIMARY_URL=https://192.0.2.1:53443
+      - TESSERA_STANDBY_URL=https://192.0.2.2:53443
+      - TESSERA_API_TOKEN_FILE=/run/secrets/token
+      - TESSERA_VOTER_KEYS_FILE=/run/secrets/voters.json
+      - TESSERA_PORT=8780
+      - TESSERA_VOTERS=voter-1,voter-2,voter-3,voter-4,voter-5
+      - TESSERA_QUORUM=3
+      - TESSERA_FAILOVER_ROUNDS=3
+      - TESSERA_FAILBACK_ROUNDS=5
+      - TESSERA_VOTE_TTL=90
+      - TESSERA_SYNC_INTERVAL=300
+    volumes:
+      - /opt/tessera/config/token:/run/secrets/token:ro
+      - /opt/tessera/config/voters.json:/run/secrets/voters.json:ro
