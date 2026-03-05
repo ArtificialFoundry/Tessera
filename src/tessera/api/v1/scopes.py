@@ -56,6 +56,8 @@ async def get_scope(
     try:
         detail = await client.get_scope(name)
     except TechnitiumError as exc:
+        if "was not found" in str(exc).lower() or "does not exist" in str(exc).lower():
+            raise HTTPException(status_code=404, detail=f"Scope '{name}' not found") from exc
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     return ScopeDetailResponse(name=name, data=detail)

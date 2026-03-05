@@ -218,33 +218,42 @@ body {
 .scope-badge.enabled { background: var(--green-glow); color: var(--green); }
 .scope-badge.disabled { background: var(--red-glow); color: var(--red); }
 
-/* Drawer */
-.drawer-overlay {
+/* Modal */
+.modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.5);
-  backdrop-filter: blur(4px);
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(8px);
   z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   opacity: 0;
-  transition: opacity 0.3s;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
 }
-.drawer-overlay.open { opacity: 1; }
-.drawer {
-  position: fixed;
-  top: 0;
-  right: -600px;
-  width: 600px;
-  max-width: 90vw;
-  height: 100vh;
+.modal-overlay.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+.modal {
   background: var(--bg);
-  border-left: 1px solid var(--border);
-  z-index: 101;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  width: 720px;
+  max-width: 92vw;
+  max-height: 85vh;
   overflow-y: auto;
-  transition: right 0.3s;
   padding: 32px;
+  position: relative;
+  transform: scale(0.95) translateY(12px);
+  transition: transform 0.25s ease;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05);
 }
-.drawer.open { right: 0; }
-.drawer-close {
+.modal-overlay.open .modal {
+  transform: scale(1) translateY(0);
+}
+.modal-close {
   position: absolute;
   top: 16px;
   right: 16px;
@@ -259,9 +268,22 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: background 0.15s;
+  z-index: 1;
 }
-.drawer h2 { font-size: 24px; font-weight: 700; margin-bottom: 24px; }
-.drawer h3 { font-size: 16px; font-weight: 600; margin: 24px 0 12px; color: var(--accent); }
+.modal-close:hover { background: var(--surface-hover); }
+.modal h2 { font-size: 22px; font-weight: 700; margin-bottom: 24px; padding-right: 48px; }
+.modal h3 { font-size: 15px; font-weight: 600; margin: 20px 0 10px; color: var(--accent); }
+
+/* Voter detail modal */
+.voter-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.voter-detail-item {
+  padding: 12px 16px;
+}
 
 table {
   width: 100%;
@@ -299,7 +321,8 @@ td.mono { font-family: var(--mono); font-size: 12px; }
 .btn-primary:hover { opacity: 0.9; }
 .btn-danger { background: var(--red); border-color: var(--red); color: white; }
 .btn-sm { padding: 4px 10px; font-size: 12px; }
-.btn-group { display: flex; gap: 8px; margin-top: 12px; }
+.btn-ghost { background: transparent; border-color: transparent; color: var(--text-dim); }
+.btn-ghost:hover { color: var(--text); background: var(--surface); }
 
 .form-row { display: flex; gap: 12px; margin-bottom: 12px; }
 .form-field { flex: 1; }
@@ -315,6 +338,7 @@ td.mono { font-family: var(--mono); font-size: 12px; }
   font-size: 13px;
 }
 .form-field input:focus { outline: none; border-color: var(--accent); }
+.form-field input::placeholder { color: var(--text-dim); opacity: 0.5; }
 
 .lease-type {
   display: inline-block;
@@ -337,12 +361,52 @@ td.mono { font-family: var(--mono); font-size: 12px; }
 .config-label { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
 
 .empty { text-align: center; padding: 48px; color: var(--text-dim); }
-.loading { text-align: center; padding: 48px; color: var(--text-dim); }
-.loading::after { content: '...'; animation: dots 1.5s infinite; }
-@keyframes dots { 0%,20% { content: '.'; } 40% { content: '..'; } 60%,100% { content: '...'; } }
 
-.fade-enter-active, .fade-leave-active { transition: opacity 0.2s; }
-.fade-enter-from, .fade-leave-to { opacity: 0; }
+/* Toast notifications */
+.toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 200;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 8px;
+}
+.toast {
+  padding: 12px 20px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 500;
+  backdrop-filter: blur(var(--blur));
+  border: 1px solid var(--border);
+  animation: toast-in 0.3s ease;
+  max-width: 360px;
+}
+.toast.success { background: var(--green-glow); color: var(--green); border-color: rgba(34,197,94,0.2); }
+.toast.error { background: var(--red-glow); color: var(--red); border-color: rgba(239,68,68,0.2); }
+.toast.info { background: rgba(99,102,241,0.15); color: var(--accent); border-color: rgba(99,102,241,0.2); }
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Confirm dialog */
+.confirm-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 24px;
+}
+.confirm-message {
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+/* Section divider */
+.modal-section + .modal-section { margin-top: 4px; }
+
+/* Scrollbar */
+.modal::-webkit-scrollbar { width: 6px; }
+.modal::-webkit-scrollbar-track { background: transparent; }
+.modal::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 </style>
 </head>
 <body>
@@ -387,7 +451,7 @@ td.mono { font-family: var(--mono); font-size: 12px; }
 
     <div class="section-title">🗳️ Voters</div>
     <div class="voters-grid">
-      <div v-for="(v, name) in failover.voters" :key="name" class="card voter-card">
+      <div v-for="(v, name) in failover.voters" :key="name" class="card voter-card" @click="openVoterDetail(name, v)" style="cursor:pointer">
         <div class="voter-name">{{ name }}</div>
         <span class="voter-status" :class="voterClass(v)">{{ v.status }}</span>
         <div class="voter-time">{{ timeAgo(v.received_at) }}</div>
@@ -475,101 +539,160 @@ td.mono { font-family: var(--mono); font-size: 12px; }
     <div v-if="scopes.length===0" class="card empty">No scopes found</div>
   </template>
 
-  <!-- SCOPE DETAIL DRAWER -->
-  <div class="drawer-overlay" :class="{open: drawer}" @click="drawer=false" v-show="drawer"></div>
-  <div class="drawer" :class="{open: drawer}">
-    <button class="drawer-close" @click="drawer=false">✕</button>
-    <template v-if="scopeDetail">
-      <h2>{{ selectedScope }}</h2>
+  <!-- SCOPE DETAIL MODAL -->
+  <div class="modal-overlay" :class="{open: modal==='scope'}" @click.self="closeModal">
+    <div class="modal">
+      <button class="modal-close" @click="closeModal">✕</button>
+      <template v-if="scopeDetail">
+        <h2>{{ selectedScope }}</h2>
 
-      <h3>Network Configuration</h3>
-      <div class="card" style="margin-bottom:16px">
-        <table>
-          <tr v-for="(v,k) in networkConfig" :key="k">
-            <td style="color:var(--text-dim);width:40%">{{ k }}</td>
-            <td class="mono">{{ v }}</td>
-          </tr>
-        </table>
-      </div>
-
-      <h3>Lease Settings</h3>
-      <div class="card" style="margin-bottom:16px">
-        <table>
-          <tr v-for="(v,k) in leaseSettings" :key="k">
-            <td style="color:var(--text-dim);width:40%">{{ k }}</td>
-            <td class="mono">{{ v }}</td>
-          </tr>
-        </table>
-      </div>
-
-      <h3>Reservations ({{ reservations.length }})</h3>
-      <div class="card" style="margin-bottom:16px;overflow-x:auto">
-        <table>
-          <thead><tr><th>Host</th><th>IP</th><th>MAC</th><th>Notes</th><th></th></tr></thead>
-          <tbody>
-            <tr v-for="r in reservations" :key="r.hardwareAddress">
-              <td>{{ r.hostName || '—' }}</td>
-              <td class="mono">{{ r.address }}</td>
-              <td class="mono">{{ r.hardwareAddress }}</td>
-              <td>{{ r.comments || '—' }}</td>
-              <td><button class="btn btn-danger btn-sm" @click="deleteReservation(r.hardwareAddress)">✕</button></td>
-            </tr>
-          </tbody>
-        </table>
-        <div class="form-row" style="margin-top:16px">
-          <div class="form-field"><label>MAC</label><input v-model="newRes.mac" placeholder="AA:BB:CC:DD:EE:FF"></div>
-          <div class="form-field"><label>IP</label><input v-model="newRes.ip" placeholder="192.168.1.100"></div>
-          <div class="form-field"><label>Host</label><input v-model="newRes.host" placeholder="hostname"></div>
+        <div class="modal-section">
+          <h3>Network Configuration</h3>
+          <div class="card" style="margin-bottom:16px">
+            <table>
+              <tr v-for="(v,k) in networkConfig" :key="k">
+                <td style="color:var(--text-dim);width:40%">{{ k }}</td>
+                <td class="mono">{{ v }}</td>
+              </tr>
+            </table>
+          </div>
         </div>
-        <button class="btn btn-primary" @click="addReservation">Add Reservation</button>
-      </div>
 
-      <h3>Active Leases</h3>
-      <div class="card" style="overflow-x:auto">
-        <table>
-          <thead><tr><th>Address</th><th>MAC</th><th>Host</th><th>Type</th><th>Expires</th></tr></thead>
-          <tbody>
-            <tr v-for="l in scopeLeases" :key="l.address">
-              <td class="mono">{{ l.address }}</td>
-              <td class="mono">{{ l.hardwareAddress || '—' }}</td>
-              <td>{{ l.hostName || '—' }}</td>
-              <td><span class="lease-type" :class="(l.type||'').toLowerCase()">{{ l.type || 'Unknown' }}</span></td>
-              <td class="mono">{{ l.expires || '—' }}</td>
-            </tr>
-          </tbody>
-        </table>
-        <div v-if="scopeLeases.length===0" class="empty" style="padding:24px">No active leases</div>
+        <div class="modal-section">
+          <h3>Lease Settings</h3>
+          <div class="card" style="margin-bottom:16px">
+            <table>
+              <tr v-for="(v,k) in leaseSettings" :key="k">
+                <td style="color:var(--text-dim);width:40%">{{ k }}</td>
+                <td class="mono">{{ v }}</td>
+              </tr>
+            </table>
+          </div>
+        </div>
+
+        <div class="modal-section">
+          <h3>Reservations ({{ reservations.length }})</h3>
+          <div class="card" style="margin-bottom:16px;overflow-x:auto">
+            <table>
+              <thead><tr><th>Host</th><th>IP</th><th>MAC</th><th>Notes</th><th></th></tr></thead>
+              <tbody>
+                <tr v-for="r in reservations" :key="r.hardwareAddress">
+                  <td>{{ r.hostName || '—' }}</td>
+                  <td class="mono">{{ r.address }}</td>
+                  <td class="mono">{{ r.hardwareAddress }}</td>
+                  <td>{{ r.comments || '—' }}</td>
+                  <td><button class="btn btn-danger btn-sm" @click="confirmDeleteReservation(r)">✕</button></td>
+                </tr>
+                <tr v-if="reservations.length===0"><td colspan="5" style="text-align:center;color:var(--text-dim)">No reservations</td></tr>
+              </tbody>
+            </table>
+            <div class="form-row" style="margin-top:16px">
+              <div class="form-field"><label>MAC</label><input v-model="newRes.mac" placeholder="AA:BB:CC:DD:EE:FF" @keydown.enter="addReservation"></div>
+              <div class="form-field"><label>IP</label><input v-model="newRes.ip" placeholder="192.0.2.x" @keydown.enter="addReservation"></div>
+              <div class="form-field"><label>Host</label><input v-model="newRes.host" placeholder="hostname" @keydown.enter="addReservation"></div>
+            </div>
+            <button class="btn btn-primary" @click="addReservation" :disabled="!newRes.mac || !newRes.ip">Add Reservation</button>
+          </div>
+        </div>
+
+        <div class="modal-section">
+          <h3>Active Leases ({{ scopeLeases.length }})</h3>
+          <div class="card" style="overflow-x:auto">
+            <table>
+              <thead><tr><th>Address</th><th>MAC</th><th>Host</th><th>Type</th><th>Expires</th></tr></thead>
+              <tbody>
+                <tr v-for="l in scopeLeases" :key="l.address">
+                  <td class="mono">{{ l.address }}</td>
+                  <td class="mono">{{ l.hardwareAddress || '—' }}</td>
+                  <td>{{ l.hostName || '—' }}</td>
+                  <td><span class="lease-type" :class="(l.type||'').toLowerCase()">{{ l.type || 'Unknown' }}</span></td>
+                  <td class="mono">{{ l.expires || '—' }}</td>
+                </tr>
+                <tr v-if="scopeLeases.length===0"><td colspan="5" style="text-align:center;color:var(--text-dim)">No active leases</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- VOTER DETAIL MODAL -->
+  <div class="modal-overlay" :class="{open: modal==='voter'}" @click.self="closeModal">
+    <div class="modal" style="width:520px">
+      <button class="modal-close" @click="closeModal">✕</button>
+      <template v-if="voterDetail">
+        <h2>{{ voterDetail.name }}</h2>
+        <div class="voter-detail-grid">
+          <div class="card voter-detail-item">
+            <div class="config-label">Status</div>
+            <span class="voter-status" :class="voterClass(voterDetail)" style="margin-top:4px">{{ voterDetail.status }}</span>
+          </div>
+          <div class="card voter-detail-item">
+            <div class="config-label">Last Seen</div>
+            <div class="config-value" style="margin-top:4px">{{ timeAgo(voterDetail.received_at) }}</div>
+          </div>
+          <div class="card voter-detail-item">
+            <div class="config-label">Received At</div>
+            <div class="config-value" style="margin-top:4px;font-size:12px">{{ formatTime(voterDetail.received_at) }}</div>
+          </div>
+          <div class="card voter-detail-item">
+            <div class="config-label">Stale</div>
+            <div class="config-value" style="margin-top:4px">{{ voterDetail.stale ? 'Yes' : 'No' }}</div>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- CONFIRM MODAL -->
+  <div class="modal-overlay" :class="{open: modal==='confirm'}" @click.self="cancelConfirm">
+    <div class="modal" style="width:460px">
+      <button class="modal-close" @click="cancelConfirm">✕</button>
+      <h2>{{ confirmTitle }}</h2>
+      <div class="confirm-message">{{ confirmMessage }}</div>
+      <div class="confirm-actions">
+        <button class="btn btn-ghost" @click="cancelConfirm">Cancel</button>
+        <button class="btn btn-danger" @click="executeConfirm">{{ confirmAction }}</button>
       </div>
-    </template>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATIONS -->
+  <div class="toast-container">
+    <div v-for="t in toasts" :key="t.id" class="toast" :class="t.type">{{ t.message }}</div>
   </div>
 </div>
 
 <script>
-const { createApp, ref, reactive, computed, onMounted, onUnmounted } = Vue;
+const { createApp, ref, reactive, computed, onMounted, onUnmounted, nextTick } = Vue;
 
 createApp({
   setup() {
     const view = ref('failover');
     const failover = ref({});
     const scopes = ref([]);
-    const drawer = ref(false);
+    const modal = ref(null); // null | 'scope' | 'voter' | 'confirm'
+    const previousModal = ref(null);
     const selectedScope = ref('');
     const scopeDetail = ref(null);
     const scopeLeases = ref([]);
+    const voterDetail = ref(null);
     const newRes = reactive({ mac: '', ip: '', host: '' });
+    const toasts = ref([]);
     let statusInterval = null;
 
+    // Confirm dialog state
+    const confirmTitle = ref('');
+    const confirmMessage = ref('');
+    const confirmAction = ref('Delete');
+    let confirmCallback = null;
+
     const enabledCount = computed(() => scopes.value.filter(s => s.enabled).length);
-    const totalReservations = computed(() => {
-      // placeholder — updated when scopes loaded
-      return '—';
-    });
+    const totalReservations = computed(() => '—');
     const totalLeases = computed(() => '—');
 
-    const reservations = computed(() => {
-      if (!scopeDetail.value) return [];
-      return scopeDetail.value.reservedLeases || [];
-    });
+    const reservations = computed(() => scopeDetail.value?.reservedLeases || []);
 
     const networkConfig = computed(() => {
       if (!scopeDetail.value) return {};
@@ -588,11 +711,13 @@ createApp({
       if (!scopeDetail.value) return {};
       const d = scopeDetail.value;
       const cfg = {};
-      if (d.leaseDuration) cfg['Lease Duration'] = d.leaseDuration;
+      const days = d.leaseTimeDays || 0;
+      const hrs = d.leaseTimeHours || 0;
+      const mins = d.leaseTimeMinutes || 0;
+      if (days || hrs || mins) cfg['Lease Duration'] = [days && `${days}d`, hrs && `${hrs}h`, mins && `${mins}m`].filter(Boolean).join(' ');
       if (d.pingCheckEnabled !== undefined) cfg['Ping Check'] = d.pingCheckEnabled ? 'Yes' : 'No';
-      if (d.reservedOnlyMode !== undefined) cfg['Reserved Only'] = d.reservedOnlyMode ? 'Yes' : 'No';
       if (d.allowOnlyReservedLeases !== undefined) cfg['Reserved Only'] = d.allowOnlyReservedLeases ? 'Yes' : 'No';
-      if (d.dnsUpdates !== undefined) cfg['DNS Updates'] = d.dnsUpdates ? 'Enabled' : 'Disabled';
+      if (d.offerDelayTime !== undefined) cfg['Offer Delay'] = `${d.offerDelayTime}ms`;
       return cfg;
     });
 
@@ -606,6 +731,22 @@ createApp({
       if (failover.value.has_quorum) return 'ok';
       return quorumPct.value > 50 ? 'warn' : 'fail';
     });
+
+    function toast(message, type = 'info') {
+      const id = Date.now() + Math.random();
+      toasts.value.push({ id, message, type });
+      setTimeout(() => { toasts.value = toasts.value.filter(t => t.id !== id); }, 4000);
+    }
+
+    function closeModal() {
+      modal.value = null;
+      previousModal.value = null;
+    }
+
+    function openVoterDetail(name, v) {
+      voterDetail.value = { name, ...v };
+      modal.value = 'voter';
+    }
 
     async function loadStatus() {
       try {
@@ -621,16 +762,100 @@ createApp({
           const data = await r.json();
           scopes.value = data.scopes || [];
         }
-      } catch(e) { /* silent */ }
+      } catch(e) {
+        toast('Failed to load scopes', 'error');
+      }
     }
 
     async function openScope(name) {
       selectedScope.value = name;
-      drawer.value = true;
+      scopeDetail.value = null;
+      scopeLeases.value = [];
+      modal.value = 'scope';
       try {
         const [detailRes, leasesRes] = await Promise.all([
           fetch(`/api/v1/scopes/${encodeURIComponent(name)}`),
           fetch(`/api/v1/leases/${encodeURIComponent(name)}`)
+        ]);
+        if (detailRes.ok) {
+          const d = await detailRes.json();
+          scopeDetail.value = d.data || d;
+        } else {
+          toast('Failed to load scope details', 'error');
+        }
+        if (leasesRes.ok) {
+          const l = await leasesRes.json();
+          scopeLeases.value = l.leases || [];
+        }
+      } catch(e) {
+        toast('Failed to load scope data', 'error');
+      }
+    }
+
+    async function addReservation() {
+      if (!newRes.mac || !newRes.ip) return;
+      try {
+        const r = await fetch(`/api/v1/scopes/${encodeURIComponent(selectedScope.value)}/reservations`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ hardware_address: newRes.mac, address: newRes.ip, host_name: newRes.host })
+        });
+        if (r.ok) {
+          toast(`Reservation added: ${newRes.ip}`, 'success');
+          newRes.mac = ''; newRes.ip = ''; newRes.host = '';
+          await refreshScopeDetail();
+        } else {
+          const err = await r.json().catch(() => ({}));
+          toast(err.detail || 'Failed to add reservation', 'error');
+        }
+      } catch(e) {
+        toast('Failed to add reservation', 'error');
+      }
+    }
+
+    function confirmDeleteReservation(r) {
+      confirmTitle.value = 'Delete Reservation';
+      confirmMessage.value = `Remove reservation for ${r.hostName || r.hardwareAddress}? (${r.address} / ${r.hardwareAddress})`;
+      confirmAction.value = 'Delete';
+      previousModal.value = 'scope';
+      confirmCallback = async () => {
+        try {
+          const res = await fetch(`/api/v1/scopes/${encodeURIComponent(selectedScope.value)}/reservations/${encodeURIComponent(r.hardwareAddress)}`, { method: 'DELETE' });
+          if (res.ok) {
+            toast(`Reservation removed: ${r.address}`, 'success');
+            modal.value = previousModal.value;
+            previousModal.value = null;
+            await refreshScopeDetail();
+          } else {
+            const err = await res.json().catch(() => ({}));
+            toast(err.detail || 'Failed to delete reservation', 'error');
+            modal.value = previousModal.value;
+          }
+        } catch(e) {
+          toast('Failed to delete reservation', 'error');
+          modal.value = previousModal.value;
+        }
+      };
+      modal.value = 'confirm';
+    }
+
+    function cancelConfirm() {
+      modal.value = previousModal.value || null;
+      previousModal.value = null;
+      confirmCallback = null;
+    }
+
+    function executeConfirm() {
+      if (confirmCallback) confirmCallback();
+      confirmCallback = null;
+    }
+
+    async function refreshScopeDetail() {
+      if (!selectedScope.value) return;
+      try {
+        const [detailRes, leasesRes] = await Promise.all([
+          fetch(`/api/v1/scopes/${encodeURIComponent(selectedScope.value)}`),
+          fetch(`/api/v1/leases/${encodeURIComponent(selectedScope.value)}`)
         ]);
         if (detailRes.ok) {
           const d = await detailRes.json();
@@ -640,32 +865,12 @@ createApp({
           const l = await leasesRes.json();
           scopeLeases.value = l.leases || [];
         }
-      } catch(e) { /* silent */ }
-    }
-
-    async function addReservation() {
-      if (!newRes.mac || !newRes.ip) return;
-      try {
-        await fetch(`/api/v1/scopes/${encodeURIComponent(selectedScope.value)}/reservations`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ hardware_address: newRes.mac, address: newRes.ip, host_name: newRes.host })
-        });
-        newRes.mac = ''; newRes.ip = ''; newRes.host = '';
-        openScope(selectedScope.value);
-      } catch(e) { /* silent */ }
-    }
-
-    async function deleteReservation(mac) {
-      if (!confirm(`Remove reservation ${mac}?`)) return;
-      try {
-        await fetch(`/api/v1/scopes/${encodeURIComponent(selectedScope.value)}/reservations/${encodeURIComponent(mac)}`, { method: 'DELETE' });
-        openScope(selectedScope.value);
-      } catch(e) { /* silent */ }
+      } catch(e) { /* silent refresh */ }
     }
 
     function voterClass(v) {
-      const age = Date.now()/1000 - (v.received_at || 0);
+      if (!v.received_at) return 'stale';
+      const age = Date.now()/1000 - v.received_at;
       if (age > 120) return 'stale';
       return v.status;
     }
@@ -683,20 +888,33 @@ createApp({
       return new Date(ts * 1000).toLocaleString();
     }
 
+    // Keyboard: Escape closes modal
+    function onKeydown(e) {
+      if (e.key === 'Escape' && modal.value) {
+        if (modal.value === 'confirm') cancelConfirm();
+        else closeModal();
+      }
+    }
+
     onMounted(() => {
       loadStatus();
       statusInterval = setInterval(loadStatus, 5000);
+      document.addEventListener('keydown', onKeydown);
     });
 
     onUnmounted(() => {
       if (statusInterval) clearInterval(statusInterval);
+      document.removeEventListener('keydown', onKeydown);
     });
 
     return {
-      view, failover, scopes, drawer, selectedScope, scopeDetail, scopeLeases,
-      newRes, enabledCount, totalReservations, totalLeases, reservations,
-      networkConfig, leaseSettings, quorumPct, quorumClass,
-      loadScopes, openScope, addReservation, deleteReservation,
+      view, failover, scopes, modal, selectedScope, scopeDetail, scopeLeases,
+      voterDetail, newRes, enabledCount, totalReservations, totalLeases, reservations,
+      networkConfig, leaseSettings, quorumPct, quorumClass, toasts,
+      confirmTitle, confirmMessage, confirmAction,
+      loadScopes, openScope, addReservation, confirmDeleteReservation,
+      cancelConfirm, executeConfirm,
+      closeModal, openVoterDetail,
       voterClass, timeAgo, formatTime
     };
   }
