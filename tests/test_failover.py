@@ -1,0 +1,139 @@
+"""Tests for the failover engine state machine and HMAC auth."""
+
+from __future__ import annotations
+
+import hashlib
+import hmac
+import time
+
+import pytest
+
+from tessera.engines.failover import (
+    FailoverEngine,
+    FailoverState,
+    verify_vote_signature,
+)
+from tessera.exceptions import AuthenticationError
+
+
+def _sign(voter: str, status: str, ts: int, psk: str) -> str:
+    """Helper to compute HMAC signature."""
+    message = f"{voter}|{status}|{ts}"
+    return hmac.new(psk.encode(), message.encode(), hashlib.sha256).hexdigest()
+
+
+class TestVerifyVoteSignature:
+    """Test HMAC signature verification."""
+
+    def test_valid_signature(self) -> None:
+        """Valid HMAC passes verification."""
+        sig = _sign("voter-1", "up", 1000, "secret")
+        assert verify_vote_signature("voter-1", "up", 1000, sig, "secret")
+
+    def test_invalid_signature(self) -> None:
+        """Bad signature is rejected."""
+        assert not verify_vote_signature("voter-1", "up", 1000, "bad", "secret")
+
+    def test_wrong_psk(self) -> None:
+        """Wrong PSK produces different signature."""
+        sig = _sign("voter-1", "up", 1000, "secret")
+        assert not verify_vote_signature("voter-1", "up", 1000, sig, "wrong")
+
+
+class TestFailoverEngine:
+    """Test failover state machine transitions."""
+
+    def test_initial_state_is_standby(self, failover_engine: FailoverEngine) -> None:
+        """Engine starts in standby."""
+        assert failover_engine.state == FailoverState.STANDBY
+
+    def test_submit_vote_valid(
+        self, failover_engine: FailoverEngine, voter_keys: dict[str, str]
+    ) -> None:
+        """Valid vote is accepted."""
+        ts = int(time.time())
+        sig = _sign("voter-1", "up", ts, voter_keys["voter-1"])
+        vote = failover_engine.submit_vote("voter-1", "up", ts, sig)
+        assert vote.voter == "voter-1"
+        assert vote.status.value == "up"
+
+    def test_submit_vote_unknown_voter(self, failover_engine: FailoverEngine) -> None:
+        """Unknown voter is rejected."""
+        ts = int(time.time())
+        with pytest.raises(AuthenticationError, match="Unknown voter"):
+            failover_engine.submit_vote("unknown", "up", ts, "sig")
+
+    def test_submit_vote_stale_timestamp(
+        self, failover_engine: FailoverEngine, voter_keys: dict[str, str]
+    ) -> None:
+        """Stale timestamp is rejected."""
+        ts = int(time.time()) - 120
+        sig = _sign("voter-1", "up", ts, voter_keys["voter-1"])
+        with pytest.raises(AuthenticationError, match="Timestamp"):
+            failover_engine.submit_vote("voter-1", "up", ts, sig)
+
+    def test_submit_vote_bad_signature(self, failover_engine: FailoverEngine) -> None:
+        """Bad HMAC is rejected."""
+        ts = int(time.time())
+        with pytest.raises(AuthenticationError, match="Invalid signature"):
+            failover_engine.submit_vote("voter-1", "up", ts, "badsig")
+
+    def test_failover_transition(
+        self, failover_engine: FailoverEngine, voter_keys: dict[str, str]
+    ) -> None:
+        """Enough down rounds triggers failover."""
+        for _ in range(2):
+            ts = int(time.time())
+            for voter in ["voter-1", "voter-2"]:
+                sig = _sign(voter, "down", ts, voter_keys[voter])
+                failover_engine.submit_vote(voter, "down", ts, sig)
+            failover_engine.evaluate_quorum()
+
+        assert failover_engine.state == FailoverState.ACTIVE
+        assert len(failover_engine.transitions) == 1
+
+    def test_failback_transition(
+        self, failover_engine: FailoverEngine, voter_keys: dict[str, str]
+    ) -> None:
+        """Enough up rounds after failover triggers failback."""
+        # First trigger failover
+        for _ in range(2):
+            ts = int(time.time())
+            for voter in ["voter-1", "voter-2"]:
+                sig = _sign(voter, "down", ts, voter_keys[voter])
+                failover_engine.submit_vote(voter, "down", ts, sig)
+            failover_engine.evaluate_quorum()
+        assert failover_engine.state == FailoverState.ACTIVE
+
+        # Then trigger failback
+        for _ in range(2):
+            ts = int(time.time())
+            for voter in ["voter-1", "voter-2"]:
+                sig = _sign(voter, "up", ts, voter_keys[voter])
+                failover_engine.submit_vote(voter, "up", ts, sig)
+            failover_engine.evaluate_quorum()
+        assert failover_engine.state == FailoverState.STANDBY
+        assert len(failover_engine.transitions) == 2
+
+    def test_no_quorum_no_transition(
+        self, failover_engine: FailoverEngine, voter_keys: dict[str, str]
+    ) -> None:
+        """Without quorum, no state change happens."""
+        ts = int(time.time())
+        sig = _sign("voter-1", "down", ts, voter_keys["voter-1"])
+        failover_engine.submit_vote("voter-1", "down", ts, sig)
+        for _ in range(5):
+            failover_engine.evaluate_quorum()
+        assert failover_engine.state == FailoverState.STANDBY
+
+    def test_get_metrics(self, failover_engine: FailoverEngine) -> None:
+        """Metrics returns expected keys."""
+        metrics = failover_engine.get_metrics()
+        assert "state" in metrics
+        assert "active_votes" in metrics
+
+    def test_config_property(self, failover_engine: FailoverEngine) -> None:
+        """Config returns expected keys."""
+        config = failover_engine.config
+        assert config["quorum"] == 2
+        assert config["failover_rounds"] == 2

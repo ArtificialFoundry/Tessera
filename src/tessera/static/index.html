@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tessera — DHCP Management</title>
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0a0a0f;
+  --surface: rgba(255,255,255,0.04);
+  --surface-hover: rgba(255,255,255,0.08);
+  --border: rgba(255,255,255,0.08);
+  --text: #e8e8ed;
+  --text-dim: #8888a0;
+  --accent: #6366f1;
+  --accent-glow: rgba(99,102,241,0.3);
+  --green: #22c55e;
+  --green-glow: rgba(34,197,94,0.3);
+  --red: #ef4444;
+  --red-glow: rgba(239,68,68,0.3);
+  --yellow: #eab308;
+  --yellow-glow: rgba(234,179,8,0.3);
+  --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --radius: 16px;
+  --blur: 20px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f0f0f5;
+    --surface: rgba(0,0,0,0.03);
+    --surface-hover: rgba(0,0,0,0.06);
+    --border: rgba(0,0,0,0.08);
+    --text: #1a1a2e;
+    --text-dim: #666680;
+  }
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+.orb {
+  position: fixed;
+  border-radius: 50%;
+  filter: blur(120px);
+  opacity: 0.15;
+  pointer-events: none;
+  z-index: 0;
+}
+.orb-1 { width: 600px; height: 600px; background: var(--accent); top: -200px; left: -100px; }
+.orb-2 { width: 500px; height: 500px; background: var(--green); bottom: -150px; right: -100px; }
+.orb-3 { width: 400px; height: 400px; background: #ec4899; top: 50%; left: 60%; }
+
+.app { position: relative; z-index: 1; max-width: 1400px; margin: 0 auto; padding: 24px; }
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  margin-bottom: 32px;
+  padding: 16px 24px;
+  background: var(--surface);
+  backdrop-filter: blur(var(--blur));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.nav-brand {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  background: linear-gradient(135deg, var(--accent), #ec4899);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.nav-tabs { display: flex; gap: 8px; margin-left: auto; }
+.nav-tab {
+  padding: 8px 20px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+.nav-tab:hover { color: var(--text); background: var(--surface-hover); }
+.nav-tab.active { color: var(--text); background: var(--surface); border-color: var(--border); }
+
+.card {
+  background: var(--surface);
+  backdrop-filter: blur(var(--blur));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  transition: all 0.2s;
+}
+.card:hover { border-color: rgba(255,255,255,0.12); }
+
+.metrics-bar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.metric {
+  text-align: center;
+  padding: 20px 16px;
+}
+.metric-value {
+  font-size: 32px;
+  font-weight: 700;
+  font-family: var(--mono);
+  line-height: 1;
+}
+.metric-label {
+  font-size: 12px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 8px;
+}
+
+/* Failover */
+.hero {
+  text-align: center;
+  padding: 48px 24px;
+  margin-bottom: 24px;
+}
+.hero-state {
+  font-size: 48px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.hero-state.standby { color: var(--green); text-shadow: 0 0 40px var(--green-glow); }
+.hero-state.active { color: var(--red); text-shadow: 0 0 40px var(--red-glow); }
+.hero-sub { color: var(--text-dim); margin-top: 8px; font-size: 14px; }
+
+.voters-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.voter-card { padding: 20px; position: relative; overflow: hidden; }
+.voter-name { font-weight: 600; font-size: 15px; margin-bottom: 8px; }
+.voter-status {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.voter-status.up { background: var(--green-glow); color: var(--green); }
+.voter-status.down { background: var(--red-glow); color: var(--red); }
+.voter-status.stale { background: var(--yellow-glow); color: var(--yellow); }
+.voter-time { color: var(--text-dim); font-size: 12px; margin-top: 8px; font-family: var(--mono); }
+
+.quorum-bar { margin-bottom: 24px; }
+.quorum-track { height: 8px; background: var(--surface); border-radius: 4px; overflow: hidden; position: relative; }
+.quorum-fill { height: 100%; border-radius: 4px; transition: width 0.5s; }
+.quorum-fill.ok { background: var(--green); }
+.quorum-fill.warn { background: var(--yellow); }
+.quorum-fill.fail { background: var(--red); }
+
+.section-title {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.transitions-list { display: flex; flex-direction: column; gap: 8px; }
+.transition-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+  font-size: 13px;
+}
+.transition-time { color: var(--text-dim); font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+.transition-arrow { color: var(--accent); font-weight: 700; }
+
+/* DHCP Management */
+.scopes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.scope-card { cursor: pointer; }
+.scope-card:hover { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
+.scope-name { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+.scope-range { font-family: var(--mono); font-size: 13px; color: var(--text-dim); }
+.scope-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  margin-top: 12px;
+}
+.scope-badge.enabled { background: var(--green-glow); color: var(--green); }
+.scope-badge.disabled { background: var(--red-glow); color: var(--red); }
+
+/* Drawer */
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  backdrop-filter: blur(4px);
+  z-index: 100;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.drawer-overlay.open { opacity: 1; }
+.drawer {
+  position: fixed;
+  top: 0;
+  right: -600px;
+  width: 600px;
+  max-width: 90vw;
+  height: 100vh;
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  z-index: 101;
+  overflow-y: auto;
+  transition: right 0.3s;
+  padding: 32px;
+}
+.drawer.open { right: 0; }
+.drawer-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.drawer h2 { font-size: 24px; font-weight: 700; margin-bottom: 24px; }
+.drawer h3 { font-size: 16px; font-weight: 600; margin: 24px 0 12px; color: var(--accent); }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+th {
+  text-align: left;
+  padding: 10px 12px;
+  color: var(--text-dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--border);
+}
+td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+td.mono { font-family: var(--mono); font-size: 12px; }
+
+.btn {
+  padding: 8px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+.btn:hover { background: var(--surface-hover); }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: white; }
+.btn-primary:hover { opacity: 0.9; }
+.btn-danger { background: var(--red); border-color: var(--red); color: white; }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
+.btn-group { display: flex; gap: 8px; margin-top: 12px; }
+
+.form-row { display: flex; gap: 12px; margin-bottom: 12px; }
+.form-field { flex: 1; }
+.form-field label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; }
+.form-field input {
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+}
+.form-field input:focus { outline: none; border-color: var(--accent); }
+
+.lease-type {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.lease-type.dynamic { background: rgba(99,102,241,0.15); color: var(--accent); }
+.lease-type.reserved { background: var(--green-glow); color: var(--green); }
+.lease-type.static { background: var(--yellow-glow); color: var(--yellow); }
+
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+.config-item { padding: 16px; }
+.config-value { font-family: var(--mono); font-size: 14px; font-weight: 600; }
+.config-label { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+
+.empty { text-align: center; padding: 48px; color: var(--text-dim); }
+.loading { text-align: center; padding: 48px; color: var(--text-dim); }
+.loading::after { content: '...'; animation: dots 1.5s infinite; }
+@keyframes dots { 0%,20% { content: '.'; } 40% { content: '..'; } 60%,100% { content: '...'; } }
+
+.fade-enter-active, .fade-leave-active { transition: opacity 0.2s; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+</style>
+</head>
+<body>
+<div class="orb orb-1"></div>
+<div class="orb orb-2"></div>
+<div class="orb orb-3"></div>
+
+<div id="app" class="app">
+  <nav class="nav">
+    <span class="nav-brand">◆ Tessera</span>
+    <div class="nav-tabs">
+      <button class="nav-tab" :class="{active: view==='failover'}" @click="view='failover'">Failover</button>
+      <button class="nav-tab" :class="{active: view==='dhcp'}" @click="view='dhcp'; loadScopes()">DHCP Management</button>
+    </div>
+  </nav>
+
+  <!-- FAILOVER VIEW -->
+  <template v-if="view==='failover'">
+    <div class="hero card">
+      <div class="hero-state" :class="failover.state">{{ failover.state || 'loading' }}</div>
+      <div class="hero-sub">{{ failover.active_votes || 0 }} active votes · quorum {{ failover.has_quorum ? 'met' : 'not met' }}</div>
+    </div>
+
+    <div class="metrics-bar">
+      <div class="card metric">
+        <div class="metric-value" style="color:var(--green)">{{ failover.up_count || 0 }}</div>
+        <div class="metric-label">Up Votes</div>
+      </div>
+      <div class="card metric">
+        <div class="metric-value" style="color:var(--red)">{{ failover.down_count || 0 }}</div>
+        <div class="metric-label">Down Votes</div>
+      </div>
+      <div class="card metric">
+        <div class="metric-value">{{ failover.consecutive_down || 0 }}</div>
+        <div class="metric-label">Consec. Down</div>
+      </div>
+      <div class="card metric">
+        <div class="metric-value">{{ failover.consecutive_up || 0 }}</div>
+        <div class="metric-label">Consec. Up</div>
+      </div>
+    </div>
+
+    <div class="section-title">🗳️ Voters</div>
+    <div class="voters-grid">
+      <div v-for="(v, name) in failover.voters" :key="name" class="card voter-card">
+        <div class="voter-name">{{ name }}</div>
+        <span class="voter-status" :class="voterClass(v)">{{ v.status }}</span>
+        <div class="voter-time">{{ timeAgo(v.received_at) }}</div>
+      </div>
+      <div v-if="!failover.voters || Object.keys(failover.voters).length===0" class="card empty">No votes yet</div>
+    </div>
+
+    <div class="section-title">📊 Quorum Progress</div>
+    <div class="card quorum-bar" style="margin-bottom:24px;padding:20px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+        <span style="font-size:13px;color:var(--text-dim)">{{ failover.active_votes || 0 }} / {{ failover.config?.quorum || '?' }} required</span>
+        <span style="font-size:13px;color:var(--text-dim)">{{ failover.has_quorum ? '✅ Quorum' : '⏳ Waiting' }}</span>
+      </div>
+      <div class="quorum-track">
+        <div class="quorum-fill" :class="quorumClass" :style="{width: quorumPct + '%'}"></div>
+      </div>
+    </div>
+
+    <div v-if="failover.transitions && failover.transitions.length" style="margin-bottom:24px">
+      <div class="section-title">🔄 Transition Log</div>
+      <div class="card transitions-list">
+        <div v-for="t in failover.transitions" :key="t.timestamp" class="transition-item">
+          <span class="transition-time">{{ formatTime(t.timestamp) }}</span>
+          <span class="voter-status" :class="t.from_state">{{ t.from_state }}</span>
+          <span class="transition-arrow">→</span>
+          <span class="voter-status" :class="t.to_state">{{ t.to_state }}</span>
+          <span style="color:var(--text-dim);font-size:12px">{{ t.reason }}</span>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="failover.config" style="margin-bottom:24px">
+      <div class="section-title">⚙️ Configuration</div>
+      <div class="config-grid">
+        <div class="card config-item">
+          <div class="config-value">{{ failover.config.quorum }}</div>
+          <div class="config-label">Quorum Threshold</div>
+        </div>
+        <div class="card config-item">
+          <div class="config-value">{{ failover.config.failover_rounds }}</div>
+          <div class="config-label">Failover Rounds</div>
+        </div>
+        <div class="card config-item">
+          <div class="config-value">{{ failover.config.failback_rounds }}</div>
+          <div class="config-label">Failback Rounds</div>
+        </div>
+        <div class="card config-item">
+          <div class="config-value">{{ failover.config.vote_ttl }}s</div>
+          <div class="config-label">Vote TTL</div>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- DHCP MANAGEMENT VIEW -->
+  <template v-if="view==='dhcp'">
+    <div class="metrics-bar">
+      <div class="card metric">
+        <div class="metric-value" style="color:var(--accent)">{{ scopes.length }}</div>
+        <div class="metric-label">Total Scopes</div>
+      </div>
+      <div class="card metric">
+        <div class="metric-value" style="color:var(--green)">{{ enabledCount }}</div>
+        <div class="metric-label">Enabled</div>
+      </div>
+      <div class="card metric">
+        <div class="metric-value">{{ totalReservations }}</div>
+        <div class="metric-label">Reservations</div>
+      </div>
+      <div class="card metric">
+        <div class="metric-value">{{ totalLeases }}</div>
+        <div class="metric-label">Active Leases</div>
+      </div>
+    </div>
+
+    <div class="section-title">📡 DHCP Scopes</div>
+    <div class="scopes-grid">
+      <div v-for="s in scopes" :key="s.name" class="card scope-card" @click="openScope(s.name)">
+        <div class="scope-name">{{ s.name }}</div>
+        <div class="scope-range">{{ s.start_address }} — {{ s.end_address }}</div>
+        <div class="scope-range">{{ s.subnet_mask }}</div>
+        <span class="scope-badge" :class="s.enabled?'enabled':'disabled'">{{ s.enabled?'Enabled':'Disabled' }}</span>
+      </div>
+    </div>
+    <div v-if="scopes.length===0" class="card empty">No scopes found</div>
+  </template>
+
+  <!-- SCOPE DETAIL DRAWER -->
+  <div class="drawer-overlay" :class="{open: drawer}" @click="drawer=false" v-show="drawer"></div>
+  <div class="drawer" :class="{open: drawer}">
+    <button class="drawer-close" @click="drawer=false">✕</button>
+    <template v-if="scopeDetail">
+      <h2>{{ selectedScope }}</h2>
+
+      <h3>Network Configuration</h3>
+      <div class="card" style="margin-bottom:16px">
+        <table>
+          <tr v-for="(v,k) in networkConfig" :key="k">
+            <td style="color:var(--text-dim);width:40%">{{ k }}</td>
+            <td class="mono">{{ v }}</td>
+          </tr>
+        </table>
+      </div>
+
+      <h3>Lease Settings</h3>
+      <div class="card" style="margin-bottom:16px">
+        <table>
+          <tr v-for="(v,k) in leaseSettings" :key="k">
+            <td style="color:var(--text-dim);width:40%">{{ k }}</td>
+            <td class="mono">{{ v }}</td>
+          </tr>
+        </table>
+      </div>
+
+      <h3>Reservations ({{ reservations.length }})</h3>
+      <div class="card" style="margin-bottom:16px;overflow-x:auto">
+        <table>
+          <thead><tr><th>Host</th><th>IP</th><th>MAC</th><th>Notes</th><th></th></tr></thead>
+          <tbody>
+            <tr v-for="r in reservations" :key="r.hardwareAddress">
+              <td>{{ r.hostName || '—' }}</td>
+              <td class="mono">{{ r.address }}</td>
+              <td class="mono">{{ r.hardwareAddress }}</td>
+              <td>{{ r.comments || '—' }}</td>
+              <td><button class="btn btn-danger btn-sm" @click="deleteReservation(r.hardwareAddress)">✕</button></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="form-row" style="margin-top:16px">
+          <div class="form-field"><label>MAC</label><input v-model="newRes.mac" placeholder="AA:BB:CC:DD:EE:FF"></div>
+          <div class="form-field"><label>IP</label><input v-model="newRes.ip" placeholder="192.168.1.100"></div>
+          <div class="form-field"><label>Host</label><input v-model="newRes.host" placeholder="hostname"></div>
+        </div>
+        <button class="btn btn-primary" @click="addReservation">Add Reservation</button>
+      </div>
+
+      <h3>Active Leases</h3>
+      <div class="card" style="overflow-x:auto">
+        <table>
+          <thead><tr><th>Address</th><th>MAC</th><th>Host</th><th>Type</th><th>Expires</th></tr></thead>
+          <tbody>
+            <tr v-for="l in scopeLeases" :key="l.address">
+              <td class="mono">{{ l.address }}</td>
+              <td class="mono">{{ l.hardwareAddress || '—' }}</td>
+              <td>{{ l.hostName || '—' }}</td>
+              <td><span class="lease-type" :class="(l.type||'').toLowerCase()">{{ l.type || 'Unknown' }}</span></td>
+              <td class="mono">{{ l.expires || '—' }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div v-if="scopeLeases.length===0" class="empty" style="padding:24px">No active leases</div>
+      </div>
+    </template>
+  </div>
+</div>
+
+<script>
+const { createApp, ref, reactive, computed, onMounted, onUnmounted } = Vue;
+
+createApp({
+  setup() {
+    const view = ref('failover');
+    const failover = ref({});
+    const scopes = ref([]);
+    const drawer = ref(false);
+    const selectedScope = ref('');
+    const scopeDetail = ref(null);
+    const scopeLeases = ref([]);
+    const newRes = reactive({ mac: '', ip: '', host: '' });
+    let statusInterval = null;
+
+    const enabledCount = computed(() => scopes.value.filter(s => s.enabled).length);
+    const totalReservations = computed(() => {
+      // placeholder — updated when scopes loaded
+      return '—';
+    });
+    const totalLeases = computed(() => '—');
+
+    const reservations = computed(() => {
+      if (!scopeDetail.value) return [];
+      return scopeDetail.value.reservedLeases || [];
+    });
+
+    const networkConfig = computed(() => {
+      if (!scopeDetail.value) return {};
+      const d = scopeDetail.value;
+      const cfg = {};
+      if (d.startingAddress) cfg['Start Address'] = d.startingAddress;
+      if (d.endingAddress) cfg['End Address'] = d.endingAddress;
+      if (d.subnetMask) cfg['Subnet Mask'] = d.subnetMask;
+      if (d.routerAddress) cfg['Gateway'] = d.routerAddress;
+      if (d.domainName) cfg['Domain'] = d.domainName;
+      if (d.dnsServers) cfg['DNS Servers'] = Array.isArray(d.dnsServers) ? d.dnsServers.join(', ') : d.dnsServers;
+      return cfg;
+    });
+
+    const leaseSettings = computed(() => {
+      if (!scopeDetail.value) return {};
+      const d = scopeDetail.value;
+      const cfg = {};
+      if (d.leaseDuration) cfg['Lease Duration'] = d.leaseDuration;
+      if (d.pingCheckEnabled !== undefined) cfg['Ping Check'] = d.pingCheckEnabled ? 'Yes' : 'No';
+      if (d.reservedOnlyMode !== undefined) cfg['Reserved Only'] = d.reservedOnlyMode ? 'Yes' : 'No';
+      if (d.allowOnlyReservedLeases !== undefined) cfg['Reserved Only'] = d.allowOnlyReservedLeases ? 'Yes' : 'No';
+      if (d.dnsUpdates !== undefined) cfg['DNS Updates'] = d.dnsUpdates ? 'Enabled' : 'Disabled';
+      return cfg;
+    });
+
+    const quorumPct = computed(() => {
+      const q = failover.value.config?.quorum || 1;
+      const v = failover.value.active_votes || 0;
+      return Math.min(100, (v / q) * 100);
+    });
+
+    const quorumClass = computed(() => {
+      if (failover.value.has_quorum) return 'ok';
+      return quorumPct.value > 50 ? 'warn' : 'fail';
+    });
+
+    async function loadStatus() {
+      try {
+        const r = await fetch('/api/v1/status');
+        if (r.ok) failover.value = await r.json();
+      } catch(e) { /* silent */ }
+    }
+
+    async function loadScopes() {
+      try {
+        const r = await fetch('/api/v1/scopes');
+        if (r.ok) {
+          const data = await r.json();
+          scopes.value = data.scopes || [];
+        }
+      } catch(e) { /* silent */ }
+    }
+
+    async function openScope(name) {
+      selectedScope.value = name;
+      drawer.value = true;
+      try {
+        const [detailRes, leasesRes] = await Promise.all([
+          fetch(`/api/v1/scopes/${encodeURIComponent(name)}`),
+          fetch(`/api/v1/leases/${encodeURIComponent(name)}`)
+        ]);
+        if (detailRes.ok) {
+          const d = await detailRes.json();
+          scopeDetail.value = d.data || d;
+        }
+        if (leasesRes.ok) {
+          const l = await leasesRes.json();
+          scopeLeases.value = l.leases || [];
+        }
+      } catch(e) { /* silent */ }
+    }
+
+    async function addReservation() {
+      if (!newRes.mac || !newRes.ip) return;
+      try {
+        await fetch(`/api/v1/scopes/${encodeURIComponent(selectedScope.value)}/reservations`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ hardware_address: newRes.mac, address: newRes.ip, host_name: newRes.host })
+        });
+        newRes.mac = ''; newRes.ip = ''; newRes.host = '';
+        openScope(selectedScope.value);
+      } catch(e) { /* silent */ }
+    }
+
+    async function deleteReservation(mac) {
+      if (!confirm(`Remove reservation ${mac}?`)) return;
+      try {
+        await fetch(`/api/v1/scopes/${encodeURIComponent(selectedScope.value)}/reservations/${encodeURIComponent(mac)}`, { method: 'DELETE' });
+        openScope(selectedScope.value);
+      } catch(e) { /* silent */ }
+    }
+
+    function voterClass(v) {
+      const age = Date.now()/1000 - (v.received_at || 0);
+      if (age > 120) return 'stale';
+      return v.status;
+    }
+
+    function timeAgo(ts) {
+      if (!ts) return '—';
+      const s = Math.floor(Date.now()/1000 - ts);
+      if (s < 60) return `${s}s ago`;
+      if (s < 3600) return `${Math.floor(s/60)}m ago`;
+      return `${Math.floor(s/3600)}h ago`;
+    }
+
+    function formatTime(ts) {
+      if (!ts) return '—';
+      return new Date(ts * 1000).toLocaleString();
+    }
+
+    onMounted(() => {
+      loadStatus();
+      statusInterval = setInterval(loadStatus, 5000);
+    });
+
+    onUnmounted(() => {
+      if (statusInterval) clearInterval(statusInterval);
+    });
+
+    return {
+      view, failover, scopes, drawer, selectedScope, scopeDetail, scopeLeases,
+      newRes, enabledCount, totalReservations, totalLeases, reservations,
+      networkConfig, leaseSettings, quorumPct, quorumClass,
+      loadScopes, openScope, addReservation, deleteReservation,
+      voterClass, timeAgo, formatTime
+    };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>
