@@ -125,6 +125,12 @@ function EnforcementControls() {
           </div>
         </div>
 
+        {enf.mode === "enforce" && (
+          <div style="margin-top:12px;padding:10px 14px;border-radius:var(--radius-sm);background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.25);font-size:13px;color:var(--green);display:flex;align-items:center;gap:8px">
+            <span class="pulse-dot green" /> Auto-enforcement active — drift is checked every {enf.check_interval}s and restored automatically.
+          </div>
+        )}
+
         {/* Drift result with dual-perspective view */}
         {driftResult && (
           <div style="margin-top:14px;padding:14px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--surface-raised)">
@@ -150,7 +156,10 @@ function EnforcementControls() {
 
                 <ChangesTable changes={driftTab === "what_changed" ? (driftResult.drift_summary ?? []) : driftResult.changes} />
 
-                <div style="display:flex;gap:8px;margin-top:10px">
+                <div style="display:flex;gap:8px;margin-top:10px;align-items:center">
+                  {enf.mode === "enforce" && (
+                    <span style="font-size:11px;color:var(--green)">⚡ Will auto-restore on next cycle</span>
+                  )}
                   {enf.mode !== "enforce" && (
                     <button class="btn btn-sm btn-danger" onClick={restoreFromPinned} disabled={!driftResult.drift_detected}>Restore Pinned State</button>
                   )}
@@ -395,7 +404,12 @@ function DriftDetailModal() {
 
           {e.action_taken !== "restored" ? (
             <div style="display:flex;gap:12px;justify-content:flex-end">
-              <button class="btn btn-danger" onClick={restoreAndClose}>Restore Pinned State</button>
+              {enforcement.value.mode !== "enforce" && (
+                <button class="btn btn-danger" onClick={restoreAndClose}>Restore Pinned State</button>
+              )}
+              {enforcement.value.mode === "enforce" && (
+                <div style="font-size:12px;color:var(--green);text-align:right">⚡ Enforce mode active — drift will be auto-restored on next check cycle.</div>
+              )}
               <button class="btn btn-success" onClick={acceptAndClose}>Accept Drift (Pin Current)</button>
             </div>
           ) : (
