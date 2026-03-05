@@ -68,6 +68,13 @@ def mock_technitium() -> AsyncMock:
     mock.list_scopes = AsyncMock(return_value=[])
     mock.get_scope = AsyncMock(return_value={})
     mock.get_leases = AsyncMock(return_value=[])
+    mock.set_scope = AsyncMock()
+    mock.delete_scope = AsyncMock()
+    mock.enable_scope = AsyncMock()
+    mock.disable_scope = AsyncMock()
+    mock.add_reservation = AsyncMock()
+    mock.remove_reservation = AsyncMock()
+    mock.remove_lease = AsyncMock()
     return mock
 
 
