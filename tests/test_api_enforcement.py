@@ -108,3 +108,168 @@ class TestEnforcementAPI:
         resp = await client.post("/api/v1/enforcement/check")
         assert resp.status_code == 200
         assert resp.json()["drift_detected"] is False
+
+    async def test_drift_check_returns_summary(
+        self,
+        client: AsyncClient,
+        mock_technitium: AsyncMock,
+    ) -> None:
+        """Drift check includes drift_summary when drift detected."""
+        mock_technitium.list_scopes = AsyncMock(
+            return_value=[{"name": "LAN", "enabled": True}]
+        )
+        mock_technitium.get_scope = AsyncMock(
+            return_value={
+                "startingAddress": "10.0.0.1",
+                "reservedLeases": [
+                    {
+                        "hardwareAddress": "AA:BB:CC:DD:EE:01",
+                        "address": "10.0.0.10",
+                        "hostName": "srv1",
+                        "comments": "",
+                    }
+                ],
+            }
+        )
+
+        resp = await client.post("/api/v1/backups", json={})
+        backup_id = resp.json()["backup_id"]
+        await client.post(
+            "/api/v1/enforcement/pin",
+            json={"backup_id": backup_id},
+        )
+        await client.post("/api/v1/enforcement/mode", json={"mode": "monitor"})
+
+        # Simulate drift: reservation removed
+        mock_technitium.get_scope = AsyncMock(
+            return_value={
+                "startingAddress": "10.0.0.1",
+                "reservedLeases": [],
+            }
+        )
+        resp = await client.post("/api/v1/enforcement/check")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["drift_detected"] is True
+        assert len(data["drift_summary"]) > 0
+        assert data["drift_summary"][0]["action"] == "reservation_deleted"
+
+    async def test_update_enforcement_settings(
+        self,
+        client: AsyncClient,
+    ) -> None:
+        """Update enforcement settings persists changes."""
+        resp = await client.put(
+            "/api/v1/enforcement/settings",
+            json={"check_interval": 120, "max_history": 25},
+        )
+        assert resp.status_code == 200
+
+        resp = await client.get("/api/v1/enforcement")
+        data = resp.json()
+        assert data["check_interval"] == 120
+        assert data["max_history"] == 25
+
+    async def test_update_enforcement_settings_rejects_low(
+        self,
+        client: AsyncClient,
+    ) -> None:
+        """Enforcement settings rejects check_interval < 30."""
+        resp = await client.put(
+            "/api/v1/enforcement/settings",
+            json={"check_interval": 5},
+        )
+        assert resp.status_code == 400
+
+    async def test_accept_drift(
+        self,
+        client: AsyncClient,
+        mock_technitium: AsyncMock,
+    ) -> None:
+        """Accept drift snapshots live state and pins it."""
+        mock_technitium.list_scopes = AsyncMock(
+            return_value=[{"name": "LAN", "enabled": True}]
+        )
+        mock_technitium.get_scope = AsyncMock(
+            return_value={
+                "startingAddress": "10.0.0.1",
+                "reservedLeases": [],
+            }
+        )
+
+        # Create and pin initial backup
+        resp = await client.post("/api/v1/backups", json={})
+        backup_id = resp.json()["backup_id"]
+        await client.post(
+            "/api/v1/enforcement/pin",
+            json={"backup_id": backup_id},
+        )
+
+        resp = await client.post("/api/v1/enforcement/accept")
+        assert resp.status_code == 200
+        new_id = resp.json()["new_backup_id"]
+        assert new_id  # non-empty
+
+        # Verify pin updated
+        resp = await client.get("/api/v1/enforcement")
+        assert resp.json()["pinned_backup_id"] == new_id
+
+    async def test_accept_without_pin_succeeds(
+        self,
+        client: AsyncClient,
+    ) -> None:
+        """Accept drift works even without prior pin."""
+        resp = await client.post("/api/v1/enforcement/accept")
+        assert resp.status_code == 200
+        new_id = resp.json()["new_backup_id"]
+        assert new_id
+
+        resp = await client.get("/api/v1/enforcement")
+        assert resp.json()["pinned_backup_id"] == new_id
+
+    async def test_history_includes_count(
+        self,
+        client: AsyncClient,
+        mock_technitium: AsyncMock,
+    ) -> None:
+        """History entries include count and last_seen fields."""
+        mock_technitium.list_scopes = AsyncMock(
+            return_value=[{"name": "LAN", "enabled": True}]
+        )
+        mock_technitium.get_scope = AsyncMock(
+            return_value={
+                "startingAddress": "10.0.0.1",
+                "reservedLeases": [
+                    {
+                        "hardwareAddress": "AA:BB:CC:DD:EE:01",
+                        "address": "10.0.0.10",
+                        "hostName": "srv1",
+                        "comments": "",
+                    }
+                ],
+            }
+        )
+
+        resp = await client.post("/api/v1/backups", json={})
+        backup_id = resp.json()["backup_id"]
+        await client.post(
+            "/api/v1/enforcement/pin",
+            json={"backup_id": backup_id},
+        )
+        await client.post("/api/v1/enforcement/mode", json={"mode": "monitor"})
+
+        # Same drift 3x
+        mock_technitium.get_scope = AsyncMock(
+            return_value={
+                "startingAddress": "10.0.0.1",
+                "reservedLeases": [],
+            }
+        )
+        for _ in range(3):
+            await client.post("/api/v1/enforcement/check")
+
+        resp = await client.get("/api/v1/enforcement")
+        history = resp.json()["history"]
+        assert len(history) == 1
+        assert history[0]["count"] == 3
+        assert history[0]["last_seen"] > 0

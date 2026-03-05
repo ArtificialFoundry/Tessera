@@ -221,7 +221,7 @@ Request → FastAPI Router → Depends(get_*) → Engine/Client → Technitium A
 ## Current State
 
 - **Status:** Production — deployed as Docker container (192.0.2.2), Docker container `tessera`, port 8780
-- **Test coverage:** 90 tests, all passing
+- **Test coverage:** 98 tests, all passing
 - **Lint:** ruff clean, mypy strict clean
 - **Known issues:** None
 - **Deployment:** `network_mode: host`, only accessible via VPN (LAN port 8780 firewalled)
@@ -267,7 +267,7 @@ Request → FastAPI Router → Depends(get_*) → Engine/Client → Technitium A
 - **`pages.py` rewritten**: `_build_asset_map()` scans `dist/` for hashed filenames, injects into single `page.html` template
 - **Removed**: Old `base.html`, `failover.html`, `dhcp.html`, `protection.html` templates; old `common.js`, `failover.js`, `dhcp.js`, `protection.js`; `vue.global.prod.js`
 - **New dep**: `preact`, `@preact/signals`, `@preact/preset-vite`, `vite`, `typescript` (build-time only)
-- All checks green: 90 tests ✅ ruff ✅ mypy ✅ tsc ✅
+- All checks green: 98 tests ✅ ruff ✅ mypy ✅ tsc ✅
 
 ### 2026-03-05 — MPA Rewrite (SPA → Multi-Page Architecture)
 - **Dropped Vue.js CDN entirely** — zero framework dependencies, vanilla JS only

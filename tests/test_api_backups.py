@@ -107,3 +107,23 @@ class TestBackupAPI:
         )
         assert resp.status_code == 200
         assert resp.json()["dry_run"] is True
+
+    async def test_get_settings(self, client: AsyncClient) -> None:
+        """Get backup settings returns defaults."""
+        resp = await client.get("/api/v1/backups/settings")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "max_backups" in data
+        assert "auto_enabled" in data
+
+    async def test_update_settings(self, client: AsyncClient) -> None:
+        """Update backup settings persists changes."""
+        resp = await client.put(
+            "/api/v1/backups/settings",
+            json={"max_backups": 25, "cron_schedule": "0 */12 * * *"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["max_backups"] == 25
+
+        resp = await client.get("/api/v1/backups/settings")
+        assert resp.json()["max_backups"] == 25
