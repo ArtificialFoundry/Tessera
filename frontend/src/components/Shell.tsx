@@ -183,3 +183,29 @@ export function Modal({ name, width, children }: ModalProps) {
     </div>
   );
 }
+
+// -- Pagination ---------------------------------------------------------------
+
+interface PaginatorProps {
+  total: number;
+  offset: number;
+  limit: number;
+  onPage: (offset: number) => void;
+}
+
+export function Paginator({ total, offset, limit, onPage }: PaginatorProps) {
+  if (total <= limit) return null;
+  const page = Math.floor(offset / limit) + 1;
+  const pages = Math.ceil(total / limit);
+  return (
+    <div class="paginator">
+      <button class="btn btn-sm btn-ghost" disabled={offset === 0} onClick={() => onPage(offset - limit)}>
+        ← Prev
+      </button>
+      <span class="paginator-info">{page} / {pages} ({total} total)</span>
+      <button class="btn btn-sm btn-ghost" disabled={offset + limit >= total} onClick={() => onPage(offset + limit)}>
+        Next →
+      </button>
+    </div>
+  );
+}

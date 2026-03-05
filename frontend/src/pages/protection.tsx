@@ -3,27 +3,34 @@
 import { render } from "preact";
 import { signal } from "@preact/signals";
 import { useEffect, useState } from "preact/hooks";
-import { api, type BackupManifest, type BackupSettings, type EnforcementStatus, type DriftCheckResponse, type DriftEvent, type DriftChange } from "@/lib/api";
+import { api, type BackupManifest, type BackupSettings, type EnforcementStatus, type DriftCheckResponse, type DriftEvent, type DriftChange, type PaginationMeta } from "@/lib/api";
 import { toast, formatTime } from "@/lib/utils";
-import { Shell, Modal, openModal, closeModal, showConfirm } from "@/components/Shell";
+import { Shell, Modal, openModal, closeModal, showConfirm, Paginator } from "@/components/Shell";
 import "@/styles/tessera.css";
 
 const backups = signal<BackupManifest[]>([]);
+const backupsPagination = signal<PaginationMeta>({ total: 0, offset: 0, limit: 20 });
 const enforcement = signal<EnforcementStatus>({
   mode: "off", pinned_backup_id: "", check_interval: 300,
   last_check: 0, last_drift: 0, drift_count: 0, restore_count: 0,
   backup_on_pin: true, auto_restore_cooldown: 60, max_history: 50, history: [],
+  history_pagination: { total: 0, offset: 0, limit: 20 },
 });
+const historyOffset = signal(0);
 const backupSettings = signal<BackupSettings>({
   auto_enabled: false, cron_schedule: "", max_backups: 50,
   stored_backups: 0, next_run: 0, backup_dir: "",
 });
 
 async function loadBackups() {
-  try { backups.value = (await api.listBackups()).backups ?? []; } catch { /* */ }
+  try {
+    const r = await api.listBackups(backupsPagination.value.offset, 20);
+    backups.value = r.backups ?? [];
+    backupsPagination.value = r.pagination;
+  } catch { /* */ }
 }
 async function loadEnforcement() {
-  try { enforcement.value = await api.getEnforcement(); } catch { /* */ }
+  try { enforcement.value = await api.getEnforcement(historyOffset.value, 20); } catch { /* */ }
 }
 async function loadBackupSettings() {
   try { backupSettings.value = await api.getBackupSettings(); } catch { /* */ }
@@ -49,7 +56,7 @@ function ProtectionPage() {
           </div>
           <div class="metric-label">Enforcement Mode</div>
         </div>
-        <div class="card metric"><div class="metric-value" style="color:var(--accent)">{backups.value.length}</div><div class="metric-label">Backups</div></div>
+        <div class="card metric"><div class="metric-value" style="color:var(--accent)">{backupsPagination.value.total}</div><div class="metric-label">Backups</div></div>
         <div class="card metric"><div class="metric-value" style="color:#f97316">{enf.drift_count}</div><div class="metric-label">Drift Events</div></div>
         <div class="card metric"><div class="metric-value" style="color:var(--green)">{enf.restore_count}</div><div class="metric-label">Auto-Restores</div></div>
       </div>
@@ -321,13 +328,14 @@ const driftDetail = signal<DriftEvent | null>(null);
 
 function DriftHistory() {
   const history = enforcement.value.history ?? [];
-  if (!history.length) return null;
+  const hp = enforcement.value.history_pagination;
+  if (!history.length && (!hp || hp.total === 0)) return null;
 
   return (
     <div class="fade-up fade-up-3" style="margin-bottom:24px">
       <div class="section-title">📋 Drift History</div>
       <div class="timeline">
-        {history.slice(0, 15).map((e) => (
+        {history.map((e) => (
           <div key={e.detected_at} class="timeline-item" style="cursor:pointer"
             onClick={() => { driftDetail.value = e; openModal("drift-detail"); }}>
             <div class="timeline-meta">
@@ -344,6 +352,11 @@ function DriftHistory() {
           </div>
         ))}
       </div>
+      {hp && (
+        <Paginator total={hp.total} offset={hp.offset} limit={hp.limit}
+          onPage={(o) => { historyOffset.value = o; loadEnforcement(); }}
+        />
+      )}
     </div>
   );
 }
@@ -487,6 +500,12 @@ function BackupsTable() {
               {backups.value.length === 0 && <tr><td colSpan={7} style="text-align:center;color:var(--text-dim)">No backups yet — create one to get started</td></tr>}
             </tbody>
           </table>
+          <Paginator
+            total={backupsPagination.value.total}
+            offset={backupsPagination.value.offset}
+            limit={backupsPagination.value.limit}
+            onPage={(o) => { backupsPagination.value = { ...backupsPagination.value, offset: o }; loadBackups(); }}
+          />
         </div>
       </div>
     </>

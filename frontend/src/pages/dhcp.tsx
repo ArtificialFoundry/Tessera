@@ -3,9 +3,9 @@
 import { render } from "preact";
 import { signal } from "@preact/signals";
 import { useEffect, useState } from "preact/hooks";
-import { api, type ScopeListItem } from "@/lib/api";
+import { api, type ScopeListItem, type PaginationMeta } from "@/lib/api";
 import { toast } from "@/lib/utils";
-import { Shell, Modal, openModal, closeModal, showConfirm } from "@/components/Shell";
+import { Shell, Modal, openModal, closeModal, showConfirm, Paginator } from "@/components/Shell";
 import "@/styles/tessera.css";
 
 const scopes = signal<ScopeListItem[]>([]);
@@ -95,6 +95,7 @@ function ScopeDetailModal() {
   const [tab, setTab] = useState("overview");
   const [detail, setDetail] = useState<Record<string, unknown> | null>(null);
   const [leases, setLeases] = useState<Record<string, unknown>[]>([]);
+  const [leasesPag, setLeasesPag] = useState<PaginationMeta>({ total: 0, offset: 0, limit: 50 });
   const [saving, setSaving] = useState(false);
   const [newRes, setNewRes] = useState({ mac: "", ip: "", host: "", comments: "" });
 
@@ -106,12 +107,13 @@ function ScopeDetailModal() {
     refresh();
   }, [name]);
 
-  async function refresh() {
+  async function refresh(leaseOffset = 0) {
     if (!name) return;
     try {
-      const [dr, lr] = await Promise.all([api.getScope(name), api.listLeases(name)]);
+      const [dr, lr] = await Promise.all([api.getScope(name), api.listLeases(name, leaseOffset, 50)]);
       setDetail(dr.data as Record<string, unknown>);
       setLeases(lr.leases ?? []);
+      setLeasesPag(lr.pagination);
     } catch { /* ignore */ }
   }
 
@@ -258,6 +260,9 @@ function ScopeDetailModal() {
               {leases.length === 0 && <tr><td colSpan={6} style="text-align:center;color:var(--text-dim)">No active leases</td></tr>}
             </tbody>
           </table>
+          <Paginator total={leasesPag.total} offset={leasesPag.offset} limit={leasesPag.limit}
+            onPage={(o) => refresh(o)}
+          />
         </div>
       )}
     </Modal>

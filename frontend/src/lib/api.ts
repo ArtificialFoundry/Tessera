@@ -41,6 +41,12 @@ export interface TransitionInfo {
   reason: string;
 }
 
+export interface PaginationMeta {
+  total: number;
+  offset: number;
+  limit: number;
+}
+
 export interface FailoverStatus {
   state: string;
   has_quorum: boolean;
@@ -51,6 +57,7 @@ export interface FailoverStatus {
   consecutive_up: number;
   voters: Record<string, VoterInfo>;
   transitions: TransitionInfo[];
+  transitions_pagination: PaginationMeta;
   config: {
     quorum: number;
     failover_rounds: number;
@@ -79,6 +86,7 @@ export interface ScopeDetailResponse {
 export interface LeasesResponse {
   scope: string;
   leases: Record<string, unknown>[];
+  pagination: PaginationMeta;
 }
 
 export interface BackupManifest {
@@ -92,6 +100,7 @@ export interface BackupManifest {
 
 export interface BackupListResponse {
   backups: BackupManifest[];
+  pagination: PaginationMeta;
 }
 
 export interface RestoreResponse {
@@ -119,6 +128,7 @@ export interface EnforcementStatus {
   auto_restore_cooldown: number;
   max_history: number;
   history: DriftEvent[];
+  history_pagination: PaginationMeta;
 }
 
 export interface DriftEvent {
@@ -153,7 +163,8 @@ export interface BackupSettings {
 
 export const api = {
   ping: () => request<{ status: string }>("/ping"),
-  status: () => request<FailoverStatus>("/status"),
+  status: (transitionsOffset = 0, transitionsLimit = 20) =>
+    request<FailoverStatus>(`/status?transitions_offset=${transitionsOffset}&transitions_limit=${transitionsLimit}`),
 
   // DHCP
   listScopes: () => request<ScopesResponse>("/scopes"),
@@ -168,14 +179,16 @@ export const api = {
     request<{ message: string }>(`/scopes/${enc(scope)}/reservations`, post(body)),
   deleteReservation: (scope: string, mac: string) =>
     request<{ message: string }>(`/scopes/${enc(scope)}/reservations/${enc(mac)}`, { method: "DELETE" }),
-  listLeases: (scope: string) => request<LeasesResponse>(`/leases/${enc(scope)}`),
+  listLeases: (scope: string, offset = 0, limit = 50) =>
+    request<LeasesResponse>(`/leases/${enc(scope)}?offset=${offset}&limit=${limit}`),
   removeLease: (scope: string, address: string) =>
     request<{ message: string }>(`/leases/${enc(scope)}/${enc(address)}`, { method: "DELETE" }),
   convertLease: (scope: string, address: string) =>
     request<{ message: string }>(`/leases/${enc(scope)}/${enc(address)}/convert`, { method: "POST" }),
 
   // Backups
-  listBackups: () => request<BackupListResponse>("/backups"),
+  listBackups: (offset = 0, limit = 20) =>
+    request<BackupListResponse>(`/backups?offset=${offset}&limit=${limit}`),
   createBackup: (description = "") => request<BackupManifest>("/backups", post({ description })),
   deleteBackup: (id: string) => request<{ message: string }>(`/backups/${enc(id)}`, { method: "DELETE" }),
   restoreBackup: (id: string, dryRun: boolean) =>
@@ -185,7 +198,8 @@ export const api = {
     request<BackupSettings>("/backups/settings", { method: "PUT", body: JSON.stringify(body) }),
 
   // Enforcement
-  getEnforcement: () => request<EnforcementStatus>("/enforcement"),
+  getEnforcement: (historyOffset = 0, historyLimit = 20) =>
+    request<EnforcementStatus>(`/enforcement?history_offset=${historyOffset}&history_limit=${historyLimit}`),
   setEnforcementMode: (mode: string) => request<{ message: string }>("/enforcement/mode", post({ mode })),
   pinBackup: (backupId: string) => request<{ message: string }>("/enforcement/pin", post({ backup_id: backupId })),
   unpinBackup: () => request<{ message: string }>("/enforcement/unpin", { method: "POST" }),

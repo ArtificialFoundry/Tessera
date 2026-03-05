@@ -19,6 +19,8 @@ class TestEnforcementAPI:
         data = resp.json()
         assert data["mode"] == "off"
         assert data["pinned_backup_id"] == ""
+        assert "history_pagination" in data
+        assert data["history_pagination"]["total"] == 0
 
     async def test_set_mode_without_pin_fails(self, client: AsyncClient) -> None:
         """Cannot enable monitor without pinned backup."""

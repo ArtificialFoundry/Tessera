@@ -14,6 +14,7 @@ from tessera.api.schemas import (
     BackupSettingsRequest,
     BackupSettingsResponse,
     MessageResponse,
+    PaginationMeta,
     RestoreRequest,
     RestoreResponse,
 )
@@ -69,10 +70,14 @@ async def update_backup_settings(
 
 @router.get("")
 async def list_backups(
+    offset: int = 0,
+    limit: int = 20,
     engine: BackupEngine = Depends(get_backup_engine),
 ) -> BackupListResponse:
-    """List all stored backups."""
-    manifests = engine.list_backups()
+    """List stored backups (paginated)."""
+    all_manifests = engine.list_backups()
+    total = len(all_manifests)
+    page = all_manifests[offset : offset + limit]
     return BackupListResponse(
         backups=[
             BackupManifestResponse(
@@ -83,8 +88,9 @@ async def list_backups(
                 scope_count=m.scope_count,
                 reservation_count=m.reservation_count,
             )
-            for m in manifests
-        ]
+            for m in page
+        ],
+        pagination=PaginationMeta(total=total, offset=offset, limit=limit),
     )
 
 

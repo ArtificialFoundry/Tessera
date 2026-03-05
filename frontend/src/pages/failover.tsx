@@ -5,13 +5,14 @@ import { signal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import { api, type FailoverStatus, type VoterInfo } from "@/lib/api";
 import { timeAgo, formatTime, poll } from "@/lib/utils";
-import { Shell, Modal, openModal } from "@/components/Shell";
+import { Shell, Modal, openModal, Paginator } from "@/components/Shell";
 import "@/styles/tessera.css";
 
 const status = signal<FailoverStatus | null>(null);
 const voterDetail = signal<(VoterInfo & { name: string }) | null>(null);
+const transOffset = signal(0);
 
-const poller = poll(() => api.status(), status, 5_000);
+const poller = poll(() => api.status(transOffset.value, 20), status, 5_000);
 
 function voterClass(v: VoterInfo): string {
   if (!v.received_at || Date.now() / 1000 - v.received_at > 120) return "stale";
@@ -102,7 +103,7 @@ function FailoverPage() {
       </div>
 
       {/* Transitions */}
-      {s.transitions?.length > 0 && (
+      {(s.transitions_pagination?.total ?? s.transitions?.length ?? 0) > 0 && (
         <div style="margin-bottom:24px" class="fade-up fade-up-4">
           <div class="section-title">🔄 Transitions</div>
           <div class="timeline">
@@ -118,6 +119,14 @@ function FailoverPage() {
               </div>
             ))}
           </div>
+          {s.transitions_pagination && (
+            <Paginator
+              total={s.transitions_pagination.total}
+              offset={s.transitions_pagination.offset}
+              limit={s.transitions_pagination.limit}
+              onPage={(o) => { transOffset.value = o; }}
+            />
+          )}
         </div>
       )}
 

@@ -17,6 +17,7 @@ class TestBackupAPI:
         resp = await client.get("/api/v1/backups")
         assert resp.status_code == 200
         assert resp.json()["backups"] == []
+        assert resp.json()["pagination"]["total"] == 0
 
     async def test_create_and_list(
         self,
@@ -127,3 +128,59 @@ class TestBackupAPI:
 
         resp = await client.get("/api/v1/backups/settings")
         assert resp.json()["max_backups"] == 25
+
+    async def test_list_pagination(
+        self,
+        client: AsyncClient,
+        mock_technitium: AsyncMock,
+    ) -> None:
+        """List respects offset and limit params."""
+        mock_technitium.list_scopes = AsyncMock(
+            return_value=[{"name": "LAN", "enabled": True}]
+        )
+        mock_technitium.get_scope = AsyncMock(
+            return_value={
+                "startingAddress": "10.0.0.1",
+                "reservedLeases": [],
+            }
+        )
+        # Create 3 backups with unique IDs
+        from unittest.mock import patch
+
+        ids = ["20260101-000001", "20260101-000002", "20260101-000003"]
+        call_count = 0
+
+        orig_strftime = __import__("time").strftime
+
+        def fake_strftime(fmt: str, t: object = None) -> str:
+            nonlocal call_count
+            if fmt == "%Y%m%d-%H%M%S":
+                idx = min(call_count, len(ids) - 1)
+                call_count += 1
+                return ids[idx]
+            return orig_strftime(fmt, t) if t else orig_strftime(fmt)
+
+        with patch("tessera.engines.backup.time") as mt:
+            mt.time.return_value = 1000000.0
+            mt.gmtime = __import__("time").gmtime
+            mt.strftime = fake_strftime
+            for i in range(3):
+                mt.time.return_value = 1000000.0 + i
+                await client.post(
+                    "/api/v1/backups",
+                    json={"description": f"b{i}"},
+                )
+
+        # Default returns all 3
+        resp = await client.get("/api/v1/backups")
+        assert resp.json()["pagination"]["total"] == 3
+
+        # Limit to 2
+        resp = await client.get("/api/v1/backups?limit=2")
+        assert len(resp.json()["backups"]) == 2
+        assert resp.json()["pagination"]["total"] == 3
+
+        # Offset past all
+        resp = await client.get("/api/v1/backups?offset=10")
+        assert len(resp.json()["backups"]) == 0
+        assert resp.json()["pagination"]["total"] == 3

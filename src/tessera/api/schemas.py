@@ -27,6 +27,17 @@ class PingResponse(BaseModel):
     status: str
 
 
+# -- Pagination ---------------------------------------------------------------
+
+
+class PaginationMeta(BaseModel):
+    """Pagination metadata included in paginated responses."""
+
+    total: int
+    offset: int
+    limit: int
+
+
 # -- Registry -----------------------------------------------------------------
 
 
@@ -110,6 +121,7 @@ class FailoverStatusResponse(BaseModel):
     consecutive_up: int
     voters: dict[str, VoterInfo]
     transitions: list[TransitionInfo]
+    transitions_pagination: PaginationMeta
     config: dict[str, object]
 
 
@@ -185,10 +197,11 @@ class LeaseItem(BaseModel):
 
 
 class LeasesResponse(BaseModel):
-    """List of DHCP leases."""
+    """Paginated list of DHCP leases."""
 
     scope: str
     leases: list[dict[str, object]]
+    pagination: PaginationMeta
 
 
 class AllLeasesResponse(BaseModel):
@@ -212,9 +225,10 @@ class BackupManifestResponse(BaseModel):
 
 
 class BackupListResponse(BaseModel):
-    """List of all backups."""
+    """Paginated list of backups."""
 
     backups: list[BackupManifestResponse]
+    pagination: PaginationMeta
 
 
 class BackupDetailResponse(BaseModel):
@@ -262,6 +276,7 @@ class EnforcementStatusResponse(BaseModel):
     auto_restore_cooldown: int = 60
     max_history: int = 50
     history: list[dict[str, object]]
+    history_pagination: PaginationMeta
 
 
 class EnforcementModeRequest(BaseModel):

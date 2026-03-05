@@ -13,6 +13,7 @@ from tessera.api.schemas import (
     EnforcementSettingsRequest,
     EnforcementStatusResponse,
     MessageResponse,
+    PaginationMeta,
     PinBackupRequest,
 )
 from tessera.deps import get_enforcement_engine
@@ -27,11 +28,17 @@ router = APIRouter()
 
 @router.get("")
 async def get_enforcement_status(
+    history_offset: int = 0,
+    history_limit: int = 20,
     engine: EnforcementEngine = Depends(get_enforcement_engine),
 ) -> EnforcementStatusResponse:
-    """Get current enforcement state."""
+    """Get current enforcement state (history paginated)."""
     state = engine.enforcement_state
     from dataclasses import asdict
+
+    all_history = state.history
+    total = len(all_history)
+    page = all_history[history_offset : history_offset + history_limit]
 
     return EnforcementStatusResponse(
         mode=state.mode.value,
@@ -44,7 +51,10 @@ async def get_enforcement_status(
         backup_on_pin=state.backup_on_pin,
         auto_restore_cooldown=state.auto_restore_cooldown,
         max_history=state.max_history,
-        history=[asdict(e) for e in state.history],
+        history=[asdict(e) for e in page],
+        history_pagination=PaginationMeta(
+            total=total, offset=history_offset, limit=history_limit
+        ),
     )
 
 

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from tessera.api.schemas import (
     FailoverStatusResponse,
+    PaginationMeta,
     TransitionInfo,
     VoteRequest,
     VoteResponse,
@@ -49,12 +50,16 @@ async def submit_vote(
 
 @router.get("/status")
 async def failover_status(
+    transitions_offset: int = 0,
+    transitions_limit: int = 20,
     failover: FailoverEngine = Depends(get_failover_engine),
 ) -> FailoverStatusResponse:
     """Get current failover status, votes, and transition history."""
     evaluation = await failover.evaluate_quorum()
     votes = failover.votes
-    transitions = failover.transitions
+    all_transitions = failover.transitions
+    total = len(all_transitions)
+    page = all_transitions[transitions_offset : transitions_offset + transitions_limit]
 
     return FailoverStatusResponse(
         state=evaluation["state"],
@@ -80,7 +85,12 @@ async def failover_status(
                 timestamp=t.timestamp,
                 reason=t.reason,
             )
-            for t in transitions
+            for t in page
         ],
+        transitions_pagination=PaginationMeta(
+            total=total,
+            offset=transitions_offset,
+            limit=transitions_limit,
+        ),
         config=failover.config,
     )

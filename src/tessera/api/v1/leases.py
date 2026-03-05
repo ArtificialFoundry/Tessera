@@ -7,7 +7,12 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from tessera.api.schemas import AllLeasesResponse, LeasesResponse, MessageResponse
+from tessera.api.schemas import (
+    AllLeasesResponse,
+    LeasesResponse,
+    MessageResponse,
+    PaginationMeta,
+)
 from tessera.deps import get_technitium_client
 from tessera.exceptions import TechnitiumError
 
@@ -67,9 +72,11 @@ async def all_leases(
 @router.get("/{scope_name}")
 async def scope_leases(
     scope_name: str,
+    offset: int = 0,
+    limit: int = 50,
     client: TechnitiumClient = Depends(get_technitium_client),
 ) -> LeasesResponse:
-    """Get active leases for a specific scope."""
+    """Get active leases for a specific scope (paginated)."""
     try:
         scope_detail = await client.get_scope(scope_name)
         all_leases_list = await client.get_leases(scope_name)
@@ -77,7 +84,13 @@ async def scope_leases(
     except TechnitiumError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    return LeasesResponse(scope=scope_name, leases=leases)
+    total = len(leases)
+    page = leases[offset : offset + limit]
+    return LeasesResponse(
+        scope=scope_name,
+        leases=page,
+        pagination=PaginationMeta(total=total, offset=offset, limit=limit),
+    )
 
 
 @router.delete("/{scope_name}/{address}")
