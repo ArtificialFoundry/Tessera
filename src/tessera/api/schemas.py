@@ -139,6 +139,21 @@ class ScopeDetailResponse(BaseModel):
     data: dict[str, object]
 
 
+class ScopeCreateRequest(BaseModel):
+    """Request to create a new DHCP scope."""
+
+    name: str
+    starting_address: str
+    ending_address: str
+    subnet_mask: str
+    router_address: str = ""
+    domain_name: str = ""
+    dns_servers: list[str] = []
+    lease_time_days: int | None = None
+    lease_time_hours: int | None = None
+    lease_time_minutes: int | None = None
+
+
 class ReservationRequest(BaseModel):
     """Request to add a DHCP reservation."""
 

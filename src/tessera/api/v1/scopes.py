@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from tessera.api.schemas import (
     MessageResponse,
     ReservationRequest,
+    ScopeCreateRequest,
     ScopeDetailResponse,
     ScopeListItem,
     ScopesResponse,
@@ -47,6 +48,40 @@ async def list_scopes(
     )
 
 
+@router.post("")
+async def create_scope(
+    body: ScopeCreateRequest,
+    client: TechnitiumClient = Depends(get_technitium_client),
+) -> MessageResponse:
+    """Create a new DHCP scope.
+
+    Uses Technitium's ``scopes/set`` which creates if the scope doesn't exist.
+    """
+    try:
+        settings: dict[str, str] = {
+            "startingAddress": body.starting_address,
+            "endingAddress": body.ending_address,
+            "subnetMask": body.subnet_mask,
+        }
+        if body.router_address:
+            settings["routerAddress"] = body.router_address
+        if body.domain_name:
+            settings["domainName"] = body.domain_name
+        if body.dns_servers:
+            settings["dnsServers"] = ",".join(body.dns_servers)
+        if body.lease_time_days is not None:
+            settings["leaseTimeDays"] = str(body.lease_time_days)
+        if body.lease_time_hours is not None:
+            settings["leaseTimeHours"] = str(body.lease_time_hours)
+        if body.lease_time_minutes is not None:
+            settings["leaseTimeMinutes"] = str(body.lease_time_minutes)
+        await client.set_scope(body.name, settings)
+    except TechnitiumError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return MessageResponse(message=f"Scope '{body.name}' created")
+
+
 @router.get("/{name}")
 async def get_scope(
     name: str,
@@ -56,8 +91,11 @@ async def get_scope(
     try:
         detail = await client.get_scope(name)
     except TechnitiumError as exc:
-        if "was not found" in str(exc).lower() or "does not exist" in str(exc).lower():
-            raise HTTPException(status_code=404, detail=f"Scope '{name}' not found") from exc
+        msg = str(exc).lower()
+        if "was not found" in msg or "does not exist" in msg:
+            raise HTTPException(
+                status_code=404, detail=f"Scope '{name}' not found"
+            ) from exc
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     return ScopeDetailResponse(name=name, data=detail)
@@ -78,6 +116,48 @@ async def update_scope(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     return MessageResponse(message=f"Scope '{name}' updated")
+
+
+@router.delete("/{name}")
+async def delete_scope(
+    name: str,
+    client: TechnitiumClient = Depends(get_technitium_client),
+) -> MessageResponse:
+    """Delete a DHCP scope."""
+    try:
+        await client.delete_scope(name)
+    except TechnitiumError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return MessageResponse(message=f"Scope '{name}' deleted")
+
+
+@router.post("/{name}/enable")
+async def enable_scope(
+    name: str,
+    client: TechnitiumClient = Depends(get_technitium_client),
+) -> MessageResponse:
+    """Enable a DHCP scope."""
+    try:
+        await client.enable_scope(name)
+    except TechnitiumError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return MessageResponse(message=f"Scope '{name}' enabled")
+
+
+@router.post("/{name}/disable")
+async def disable_scope(
+    name: str,
+    client: TechnitiumClient = Depends(get_technitium_client),
+) -> MessageResponse:
+    """Disable a DHCP scope."""
+    try:
+        await client.disable_scope(name)
+    except TechnitiumError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return MessageResponse(message=f"Scope '{name}' disabled")
 
 
 @router.post("/{name}/reservations")

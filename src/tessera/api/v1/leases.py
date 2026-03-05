@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from tessera.api.schemas import AllLeasesResponse, LeasesResponse
+from tessera.api.schemas import AllLeasesResponse, LeasesResponse, MessageResponse
 from tessera.deps import get_technitium_client
 from tessera.exceptions import TechnitiumError
 
@@ -25,13 +25,13 @@ def _filter_leases_by_scope(
 
     Technitium's ``/api/dhcp/leases/list`` ignores the ``name`` parameter
     and always returns *all* leases.  We filter client-side by checking
-    each lease address falls within the scope's start–end range.
+    each lease address falls within the scope's start-end range.
     """
     try:
         start = ipaddress.IPv4Address(scope["startingAddress"])
         end = ipaddress.IPv4Address(scope["endingAddress"])
     except (KeyError, ValueError):
-        return leases  # can't filter without range — return unfiltered
+        return leases
 
     filtered: list[dict[str, Any]] = []
     for lease in leases:
@@ -78,3 +78,59 @@ async def scope_leases(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     return LeasesResponse(scope=scope_name, leases=leases)
+
+
+@router.delete("/{scope_name}/{address}")
+async def remove_lease(
+    scope_name: str,
+    address: str,
+    client: TechnitiumClient = Depends(get_technitium_client),
+) -> MessageResponse:
+    """Remove a lease from a scope."""
+    try:
+        await client.remove_lease(scope_name, address=address)
+    except TechnitiumError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return MessageResponse(message=f"Lease removed: {address}")
+
+
+@router.post("/{scope_name}/{address}/convert")
+async def convert_lease(
+    scope_name: str,
+    address: str,
+    client: TechnitiumClient = Depends(get_technitium_client),
+) -> MessageResponse:
+    """Convert a dynamic lease to a reserved lease.
+
+    Composite operation: finds the lease's MAC/hostname from the lease list,
+    then adds it as a reservation on the scope.
+    """
+    try:
+        all_leases = await client.get_leases(scope_name)
+        lease = next(
+            (entry for entry in all_leases if entry.get("address") == address),
+            None,
+        )
+        if not lease:
+            raise HTTPException(status_code=404, detail=f"Lease {address} not found")
+        mac = lease.get("hardwareAddress", "")
+        if not mac:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Lease {address} has no MAC address",
+            )
+        host = lease.get("hostName", "")
+        await client.add_reservation(
+            scope_name,
+            hardware_address=mac,
+            address=address,
+            host_name=host,
+            comments="Converted from dynamic lease",
+        )
+    except HTTPException:
+        raise
+    except TechnitiumError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return MessageResponse(message=f"Lease converted to reservation: {address}")
