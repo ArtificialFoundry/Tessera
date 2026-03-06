@@ -11,7 +11,7 @@ from tessera.registry import EngineRegistry, EngineStatus
 router = APIRouter()
 
 
-@router.get("/health")
+@router.get("/health", response_model=HealthResponse)
 async def health(
     engines: EngineRegistry = Depends(get_engine_registry),
 ) -> HealthResponse:
@@ -27,7 +27,7 @@ async def health(
     )
 
 
-@router.get("/ping")
+@router.get("/ping", response_model=PingResponse)
 async def ping() -> PingResponse:
     """Liveness probe — always returns OK."""
     return PingResponse(status="ok")

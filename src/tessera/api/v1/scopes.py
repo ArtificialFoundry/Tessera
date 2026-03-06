@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 router = APIRouter()
 
 
-@router.get("")
+@router.get("", response_model=ScopesResponse)
 async def list_scopes(
     client: TechnitiumClient = Depends(get_technitium_client),
 ) -> ScopesResponse:
@@ -48,7 +48,7 @@ async def list_scopes(
     )
 
 
-@router.post("")
+@router.post("", response_model=MessageResponse)
 async def create_scope(
     body: ScopeCreateRequest,
     client: TechnitiumClient = Depends(get_technitium_client),
@@ -82,7 +82,7 @@ async def create_scope(
     return MessageResponse(message=f"Scope '{body.name}' created")
 
 
-@router.get("/{name}")
+@router.get("/{name}", response_model=ScopeDetailResponse)
 async def get_scope(
     name: str,
     client: TechnitiumClient = Depends(get_technitium_client),
@@ -101,7 +101,7 @@ async def get_scope(
     return ScopeDetailResponse(name=name, data=detail)
 
 
-@router.put("/{name}")
+@router.put("/{name}", response_model=MessageResponse)
 async def update_scope(
     name: str,
     body: ScopeUpdateRequest,
@@ -118,7 +118,7 @@ async def update_scope(
     return MessageResponse(message=f"Scope '{name}' updated")
 
 
-@router.delete("/{name}")
+@router.delete("/{name}", response_model=MessageResponse)
 async def delete_scope(
     name: str,
     client: TechnitiumClient = Depends(get_technitium_client),
@@ -132,7 +132,7 @@ async def delete_scope(
     return MessageResponse(message=f"Scope '{name}' deleted")
 
 
-@router.post("/{name}/enable")
+@router.post("/{name}/enable", response_model=MessageResponse)
 async def enable_scope(
     name: str,
     client: TechnitiumClient = Depends(get_technitium_client),
@@ -146,7 +146,7 @@ async def enable_scope(
     return MessageResponse(message=f"Scope '{name}' enabled")
 
 
-@router.post("/{name}/disable")
+@router.post("/{name}/disable", response_model=MessageResponse)
 async def disable_scope(
     name: str,
     client: TechnitiumClient = Depends(get_technitium_client),
@@ -160,7 +160,7 @@ async def disable_scope(
     return MessageResponse(message=f"Scope '{name}' disabled")
 
 
-@router.post("/{name}/reservations")
+@router.post("/{name}/reservations", response_model=MessageResponse)
 async def add_reservation(
     name: str,
     body: ReservationRequest,
@@ -183,7 +183,7 @@ async def add_reservation(
     )
 
 
-@router.delete("/{name}/reservations/{mac}")
+@router.delete("/{name}/reservations/{mac}", response_model=MessageResponse)
 async def remove_reservation(
     name: str,
     mac: str,

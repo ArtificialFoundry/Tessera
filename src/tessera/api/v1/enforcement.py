@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 router = APIRouter()
 
 
-@router.get("")
+@router.get("", response_model=EnforcementStatusResponse)
 async def get_enforcement_status(
     history_offset: int = 0,
     history_limit: int = 20,
@@ -58,7 +58,7 @@ async def get_enforcement_status(
     )
 
 
-@router.post("/mode")
+@router.post("/mode", response_model=MessageResponse)
 async def set_enforcement_mode(
     body: EnforcementModeRequest,
     engine: EnforcementEngine = Depends(get_enforcement_engine),
@@ -80,7 +80,7 @@ async def set_enforcement_mode(
     return MessageResponse(message=f"Enforcement mode set to {mode.value}")
 
 
-@router.post("/pin")
+@router.post("/pin", response_model=MessageResponse)
 async def pin_backup(
     body: PinBackupRequest,
     engine: EnforcementEngine = Depends(get_enforcement_engine),
@@ -96,7 +96,7 @@ async def pin_backup(
     return MessageResponse(message=f"Pinned backup '{body.backup_id}' as desired state")
 
 
-@router.post("/unpin")
+@router.post("/unpin", response_model=MessageResponse)
 async def unpin_backup(
     engine: EnforcementEngine = Depends(get_enforcement_engine),
 ) -> MessageResponse:
@@ -105,7 +105,7 @@ async def unpin_backup(
     return MessageResponse(message="Unpinned backup, enforcement disabled")
 
 
-@router.post("/check")
+@router.post("/check", response_model=DriftCheckResponse)
 async def check_drift(
     engine: EnforcementEngine = Depends(get_enforcement_engine),
 ) -> DriftCheckResponse:
@@ -124,7 +124,7 @@ async def check_drift(
     )
 
 
-@router.put("/settings")
+@router.put("/settings", response_model=MessageResponse)
 async def update_enforcement_settings(
     body: EnforcementSettingsRequest,
     engine: EnforcementEngine = Depends(get_enforcement_engine),
@@ -143,7 +143,7 @@ async def update_enforcement_settings(
     return MessageResponse(message="Enforcement settings updated")
 
 
-@router.post("/accept")
+@router.post("/accept", response_model=AcceptDriftResponse)
 async def accept_drift(
     engine: EnforcementEngine = Depends(get_enforcement_engine),
 ) -> AcceptDriftResponse:

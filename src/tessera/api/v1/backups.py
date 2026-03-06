@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 router = APIRouter()
 
 
-@router.get("/settings")
+@router.get("/settings", response_model=BackupSettingsResponse)
 async def get_backup_settings(
     engine: BackupEngine = Depends(get_backup_engine),
 ) -> BackupSettingsResponse:
@@ -43,7 +43,7 @@ async def get_backup_settings(
     )
 
 
-@router.put("/settings")
+@router.put("/settings", response_model=BackupSettingsResponse)
 async def update_backup_settings(
     body: BackupSettingsRequest,
     engine: BackupEngine = Depends(get_backup_engine),
@@ -68,7 +68,7 @@ async def update_backup_settings(
     )
 
 
-@router.get("")
+@router.get("", response_model=BackupListResponse)
 async def list_backups(
     offset: int = 0,
     limit: int = 20,
@@ -94,7 +94,7 @@ async def list_backups(
     )
 
 
-@router.post("")
+@router.post("", response_model=BackupManifestResponse)
 async def create_backup(
     body: BackupCreateRequest,
     engine: BackupEngine = Depends(get_backup_engine),
@@ -115,7 +115,7 @@ async def create_backup(
     )
 
 
-@router.get("/{backup_id}")
+@router.get("/{backup_id}", response_model=BackupDetailResponse)
 async def get_backup(
     backup_id: str,
     engine: BackupEngine = Depends(get_backup_engine),
@@ -134,7 +134,7 @@ async def get_backup(
     )
 
 
-@router.delete("/{backup_id}")
+@router.delete("/{backup_id}", response_model=MessageResponse)
 async def delete_backup(
     backup_id: str,
     engine: BackupEngine = Depends(get_backup_engine),
@@ -148,7 +148,7 @@ async def delete_backup(
     return MessageResponse(message=f"Backup '{backup_id}' deleted")
 
 
-@router.post("/{backup_id}/restore")
+@router.post("/{backup_id}/restore", response_model=RestoreResponse)
 async def restore_backup(
     backup_id: str,
     body: RestoreRequest,

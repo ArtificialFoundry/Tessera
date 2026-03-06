@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 router = APIRouter()
 
 
-@router.post("/vote")
+@router.post("/vote", response_model=VoteResponse)
 async def submit_vote(
     payload: VoteRequest,
     failover: FailoverEngine = Depends(get_failover_engine),
@@ -48,7 +48,7 @@ async def submit_vote(
     )
 
 
-@router.get("/status")
+@router.get("/status", response_model=FailoverStatusResponse)
 async def failover_status(
     transitions_offset: int = 0,
     transitions_limit: int = 20,

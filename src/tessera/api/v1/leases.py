@@ -50,7 +50,7 @@ def _filter_leases_by_scope(
     return filtered
 
 
-@router.get("")
+@router.get("", response_model=AllLeasesResponse)
 async def all_leases(
     client: TechnitiumClient = Depends(get_technitium_client),
 ) -> AllLeasesResponse:
@@ -69,7 +69,7 @@ async def all_leases(
     return AllLeasesResponse(scopes=result)
 
 
-@router.get("/{scope_name}")
+@router.get("/{scope_name}", response_model=LeasesResponse)
 async def scope_leases(
     scope_name: str,
     offset: int = 0,
@@ -93,7 +93,7 @@ async def scope_leases(
     )
 
 
-@router.delete("/{scope_name}/{address}")
+@router.delete("/{scope_name}/{address}", response_model=MessageResponse)
 async def remove_lease(
     scope_name: str,
     address: str,
@@ -108,7 +108,7 @@ async def remove_lease(
     return MessageResponse(message=f"Lease removed: {address}")
 
 
-@router.post("/{scope_name}/{address}/convert")
+@router.post("/{scope_name}/{address}/convert", response_model=MessageResponse)
 async def convert_lease(
     scope_name: str,
     address: str,
