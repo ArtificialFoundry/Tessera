@@ -9,4 +9,5 @@ dist/
 build/
 .env
 node_modules/
+frontend/node_modules/
 src/tessera/static/dist/
