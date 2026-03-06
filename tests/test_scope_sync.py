@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from tessera.engines.scope_sync import ScopeSyncEngine
+from tessera.exceptions import ScopeSyncError
 
 
 @pytest.fixture
@@ -93,9 +94,9 @@ class TestScopeSyncEngine:
         mock_standby.remove_reservation.assert_called_once()
 
     async def test_sync_without_clients_raises(self) -> None:
-        """Sync without configured clients raises RuntimeError."""
+        """Sync without configured clients raises ScopeSyncError."""
         engine = ScopeSyncEngine()
-        with pytest.raises(RuntimeError, match="Clients not configured"):
+        with pytest.raises(ScopeSyncError, match="Clients not configured"):
             await engine.sync_once()
 
     async def test_health_after_sync(self, sync_engine: ScopeSyncEngine) -> None:

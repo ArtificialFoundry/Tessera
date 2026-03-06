@@ -17,6 +17,7 @@ from tessera.api.schemas import (
     PaginationMeta,
     RestoreRequest,
     RestoreResponse,
+    ScopeSnapshotResponse,
 )
 from tessera.deps import get_backup_engine
 from tessera.engines.backup import BackupError
@@ -130,7 +131,9 @@ async def get_backup(
 
     return BackupDetailResponse(
         manifest=BackupManifestResponse(**asdict(backup.manifest)),
-        scopes=[asdict(s) for s in backup.scopes],
+        scopes=[
+            ScopeSnapshotResponse(**asdict(s)) for s in backup.scopes
+        ],
     )
 
 

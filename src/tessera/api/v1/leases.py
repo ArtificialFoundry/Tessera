@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from tessera.api.schemas import (
     AllLeasesResponse,
+    LeaseEntry,
     LeasesResponse,
     MessageResponse,
     PaginationMeta,
@@ -20,6 +21,16 @@ if TYPE_CHECKING:
     from tessera.engines.technitium import TechnitiumClient
 
 router = APIRouter()
+
+
+def _lease_dict_to_entry(raw: dict[str, Any]) -> LeaseEntry:
+    """Convert a raw Technitium lease dict to a typed ``LeaseEntry``."""
+    return LeaseEntry(
+        address=raw.get("address", ""),
+        hardware_address=raw.get("hardwareAddress", ""),
+        host_name=raw.get("hostName", ""),
+        type=raw.get("type", ""),
+    )
 
 
 def _filter_leases_by_scope(
@@ -58,11 +69,14 @@ async def all_leases(
     try:
         scopes = await client.list_scopes()
         all_lease_list = await client.get_leases("")
-        result: dict[str, list[dict[str, Any]]] = {}
+        result: dict[str, list[LeaseEntry]] = {}
         for scope in scopes:
             name: str = scope.get("name", "")
             if name:
-                result[name] = _filter_leases_by_scope(all_lease_list, scope)
+                result[name] = [
+                    _lease_dict_to_entry(lease)
+                    for lease in _filter_leases_by_scope(all_lease_list, scope)
+                ]
     except TechnitiumError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -88,7 +102,7 @@ async def scope_leases(
     page = leases[offset : offset + limit]
     return LeasesResponse(
         scope=scope_name,
-        leases=page,
+        leases=[_lease_dict_to_entry(lease) for lease in page],
         pagination=PaginationMeta(total=total, offset=offset, limit=limit),
     )
 

@@ -11,6 +11,7 @@ import contextlib
 import logging
 from typing import Any
 
+from tessera.exceptions import ScopeSyncError
 from tessera.registry import Engine, EngineHealth, EngineStatus
 
 logger = logging.getLogger(__name__)
@@ -99,11 +100,11 @@ class ScopeSyncEngine(Engine):
             Summary of sync results.
 
         Raises:
-            RuntimeError: If clients are not configured.
+            ScopeSyncError: If clients are not configured.
         """
         if not self._primary_client or not self._standby_client:
             msg = "Clients not configured"
-            raise RuntimeError(msg)
+            raise ScopeSyncError(msg)
 
         import time
 

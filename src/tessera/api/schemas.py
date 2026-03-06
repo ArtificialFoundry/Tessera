@@ -190,6 +190,15 @@ class ScopeUpdateRequest(BaseModel):
 # -- Leases -------------------------------------------------------------------
 
 
+class LeaseEntry(BaseModel):
+    """A single DHCP lease entry."""
+
+    address: str = ""
+    hardware_address: str = ""
+    host_name: str = ""
+    type: str = ""  # "Dynamic" or "Reserved"
+
+
 class LeaseItem(BaseModel):
     """A single DHCP lease."""
 
@@ -200,14 +209,14 @@ class LeasesResponse(BaseModel):
     """Paginated list of DHCP leases."""
 
     scope: str
-    leases: list[dict[str, object]]
+    leases: list[LeaseEntry]
     pagination: PaginationMeta
 
 
 class AllLeasesResponse(BaseModel):
     """Leases across all scopes."""
 
-    scopes: dict[str, list[dict[str, object]]]
+    scopes: dict[str, list[LeaseEntry]]
 
 
 # -- Backups ------------------------------------------------------------------
@@ -231,11 +240,20 @@ class BackupListResponse(BaseModel):
     pagination: PaginationMeta
 
 
+class ScopeSnapshotResponse(BaseModel):
+    """A scope snapshot inside a backup."""
+
+    name: str
+    enabled: bool
+    settings: dict[str, object]
+    reservations: list[dict[str, object]]
+
+
 class BackupDetailResponse(BaseModel):
     """Full backup data including scopes."""
 
     manifest: BackupManifestResponse
-    scopes: list[dict[str, object]]
+    scopes: list[ScopeSnapshotResponse]
 
 
 class BackupCreateRequest(BaseModel):
@@ -262,6 +280,19 @@ class RestoreResponse(BaseModel):
 # -- Enforcement --------------------------------------------------------------
 
 
+class DriftEventResponse(BaseModel):
+    """A single drift event in enforcement history."""
+
+    detected_at: float
+    changes: list[dict[str, str]]
+    drift_summary: list[dict[str, str]]
+    change_count: int
+    action_taken: str
+    backup_id: str
+    count: int = 1
+    last_seen: float = 0.0
+
+
 class EnforcementStatusResponse(BaseModel):
     """Full enforcement engine status."""
 
@@ -275,7 +306,7 @@ class EnforcementStatusResponse(BaseModel):
     backup_on_pin: bool = True
     auto_restore_cooldown: int = 60
     max_history: int = 50
-    history: list[dict[str, object]]
+    history: list[DriftEventResponse]
     history_pagination: PaginationMeta
 
 

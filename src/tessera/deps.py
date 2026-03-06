@@ -16,6 +16,7 @@ from tessera.engines.enforcement import EnforcementEngine
 from tessera.engines.failover import FailoverEngine
 from tessera.engines.scope_sync import ScopeSyncEngine
 from tessera.engines.technitium import TechnitiumClient
+from tessera.exceptions import AppError
 from tessera.registry import EngineRegistry, ModuleRegistry
 
 logger = logging.getLogger(__name__)
@@ -89,28 +90,32 @@ def get_engine_registry() -> EngineRegistry:
 def get_failover_engine() -> FailoverEngine:
     """Return the failover engine from the registry."""
     engine = get_engine_registry().get("failover")
-    assert isinstance(engine, FailoverEngine)
+    if not isinstance(engine, FailoverEngine):
+        raise AppError("Expected FailoverEngine")
     return engine
 
 
 def get_technitium_client() -> TechnitiumClient:
     """Return the primary Technitium client from the registry."""
     engine = get_engine_registry().get("technitium")
-    assert isinstance(engine, TechnitiumClient)
+    if not isinstance(engine, TechnitiumClient):
+        raise AppError("Expected TechnitiumClient")
     return engine
 
 
 def get_backup_engine() -> BackupEngine:
     """Return the backup engine from the registry."""
     engine = get_engine_registry().get("backup")
-    assert isinstance(engine, BackupEngine)
+    if not isinstance(engine, BackupEngine):
+        raise AppError("Expected BackupEngine")
     return engine
 
 
 def get_enforcement_engine() -> EnforcementEngine:
     """Return the enforcement engine from the registry."""
     engine = get_engine_registry().get("enforcement")
-    assert isinstance(engine, EnforcementEngine)
+    if not isinstance(engine, EnforcementEngine):
+        raise AppError("Expected EnforcementEngine")
     return engine
 
 
