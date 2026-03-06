@@ -363,12 +363,17 @@ a `.env` file, or an environment file for systemd.
 | `TESSERA_BACKUP_CRON_SCHEDULE` | *(empty)* | Cron expression for auto-backup (e.g. `0 */6 * * *`) |
 | `TESSERA_ENFORCEMENT_INTERVAL` | `300` | Drift enforcement check interval in seconds |
 | `TESSERA_DEBUG` | `false` | Enable debug logging (human-readable format) |
+| `TESSERA_CORS_ORIGINS` | *(empty)* | JSON list of allowed CORS origins (e.g. `'["https://dashboard.example.com"]'`). No CORS middleware is added when empty. |
+| `TESSERA_CA_CERT_FILE` | *(empty)* | Path to a CA certificate bundle for Technitium API requests. When set, the httpx client uses this file for TLS verification instead of disabling verification entirely. Useful inside containers that need to trust an internal CA. |
 
 ---
 
 ## API
 
-All endpoints are under `/api/v1/`. Full OpenAPI docs available at `/docs` when running.
+All endpoints are under `/api/v1/`. Future API versions will coexist at
+`/api/v2/`, `/api/v3/`, etc. — existing versions remain stable. Every response
+includes an `X-API-Version` header indicating the version that served the
+request.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|

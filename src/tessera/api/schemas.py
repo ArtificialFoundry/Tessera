@@ -366,3 +366,124 @@ class AcceptDriftResponse(BaseModel):
 
     new_backup_id: str
     message: str
+
+
+# -- Servers ------------------------------------------------------------------
+
+
+class ServerInfo(BaseModel):
+    """Info about a single DHCP server in the pool."""
+
+    name: str
+    url: str
+    role: str
+    priority: int
+    status: str
+    message: str
+
+
+class ServersResponse(BaseModel):
+    """List of all DHCP servers."""
+
+    servers: list[ServerInfo]
+
+
+class PromoteDemoteResponse(BaseModel):
+    """Result of a promote/demote operation."""
+
+    name: str
+    new_role: str
+    message: str
+
+
+# -- Voter Registration -------------------------------------------------------
+
+
+class VoterRegisterRequest(BaseModel):
+    """Incoming voter registration request."""
+
+    name: str
+    callback_url: str = ""
+    token: str
+
+
+class VoterRegisterResponse(BaseModel):
+    """Response to voter registration."""
+
+    voter_name: str
+    psk: str | None = None
+    status: str
+
+
+class VoterInfoResponse(BaseModel):
+    """Info about a registered voter."""
+
+    name: str
+    registered_at: float
+    approved_at: float | None
+    status: str
+    last_vote: float
+    ip_address: str
+
+
+class VoterListResponse(BaseModel):
+    """List of registered voters."""
+
+    voters: list[VoterInfoResponse]
+
+
+class VoterApproveResponse(BaseModel):
+    """Result of approving a voter."""
+
+    voter_name: str
+    psk: str
+    status: str
+
+
+class VoterRevokeResponse(BaseModel):
+    """Result of revoking a voter."""
+
+    voter_name: str
+    status: str
+
+
+class RegistrationTokenRequest(BaseModel):
+    """Request to generate a registration token."""
+
+    bind_ip: str | None = None
+    ttl: int | None = None
+
+
+class RegistrationTokenResponse(BaseModel):
+    """A generated registration token."""
+
+    token: str
+    created_at: float
+    expires_at: float
+    bind_ip: str | None
+
+
+class RegistrationTokenInfo(BaseModel):
+    """Info about a registration token."""
+
+    token: str
+    created_at: float
+    expires_at: float
+    used: bool
+    used_by: str | None
+    bind_ip: str | None
+
+
+class RegistrationTokenListResponse(BaseModel):
+    """List of registration tokens."""
+
+    tokens: list[RegistrationTokenInfo]
+
+
+class KeyRotateResponse(BaseModel):
+    """Result of PSK rotation."""
+
+    voter_name: str
+    new_psk: str
+    grace_period: int
+    message: str

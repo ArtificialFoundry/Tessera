@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -16,16 +17,18 @@ from tessera.deps import (
     get_failover_engine,
     get_module_registry,
     get_technitium_client,
+    get_technitium_pool,
+    get_voter_registry,
 )
 from tessera.engines.backup import BackupEngine
 from tessera.engines.enforcement import EnforcementEngine
 from tessera.engines.failover import FailoverEngine
-from tessera.engines.technitium import TechnitiumClient
-from tessera.registry import EngineRegistry, ModuleRegistry
+from tessera.engines.technitium import TechnitiumClient, TechnitiumPool
+from tessera.engines.voter_registry import VoterRegistryEngine
+from tessera.registry import EngineRegistry, EngineStatus, ModuleRegistry
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
-    from pathlib import Path
 
 
 @pytest.fixture
@@ -71,6 +74,7 @@ def mock_technitium() -> AsyncMock:
     mock.version = "1.0.0"
     mock.description = "Mock Technitium"
     mock.depends_on = ()
+    mock.server_name = "primary"
     mock.list_scopes = AsyncMock(return_value=[{"name": "default", "enabled": True}])
     mock.get_scope = AsyncMock(return_value={})
     mock.get_leases = AsyncMock(return_value=[])
@@ -82,6 +86,20 @@ def mock_technitium() -> AsyncMock:
     mock.remove_reservation = AsyncMock()
     mock.remove_lease = AsyncMock()
     return mock
+
+
+@pytest.fixture
+def mock_pool(mock_technitium: AsyncMock) -> TechnitiumPool:
+    """Mock TechnitiumPool with a single primary."""
+    pool = TechnitiumPool(token="test-token")
+    mock_technitium._base_url = "https://test:53443"
+    mock_technitium.health = MagicMock()
+    mock_technitium.health.status = EngineStatus.REGISTERED
+    mock_technitium.health.message = ""
+    pool._clients["primary"] = mock_technitium
+    pool._roles["primary"] = "primary"
+    pool._priorities["primary"] = 0
+    return pool
 
 
 @pytest.fixture
@@ -106,13 +124,29 @@ def enforcement_engine(backup_engine: BackupEngine) -> EnforcementEngine:
 
 
 @pytest.fixture
+def voter_registry(tmp_path: Path) -> VoterRegistryEngine:
+    """Fresh voter registry with temp files."""
+    return VoterRegistryEngine(
+        voter_keys_file=tmp_path / "voter-keys.json",
+        voter_registry_file=tmp_path / "voter-registry.json",
+        reg_tokens_file=tmp_path / "reg-tokens.json",
+        static_registration_token="static-test-token",
+        auto_approve=False,
+        token_ttl=3600,
+        psk_grace_period=60,
+    )
+
+
+@pytest.fixture
 async def client(
     engine_registry: EngineRegistry,
     module_registry: ModuleRegistry,
     failover_engine: FailoverEngine,
     mock_technitium: AsyncMock,
+    mock_pool: TechnitiumPool,
     backup_engine: BackupEngine,
     enforcement_engine: EnforcementEngine,
+    voter_registry: VoterRegistryEngine,
 ) -> AsyncGenerator[AsyncClient]:
     """Async HTTP client with DI overrides for isolated tests."""
     app = create_app()
@@ -120,8 +154,10 @@ async def client(
     app.dependency_overrides[get_module_registry] = lambda: module_registry
     app.dependency_overrides[get_failover_engine] = lambda: failover_engine
     app.dependency_overrides[get_technitium_client] = lambda: mock_technitium
+    app.dependency_overrides[get_technitium_pool] = lambda: mock_pool
     app.dependency_overrides[get_backup_engine] = lambda: backup_engine
     app.dependency_overrides[get_enforcement_engine] = lambda: enforcement_engine
+    app.dependency_overrides[get_voter_registry] = lambda: voter_registry
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c

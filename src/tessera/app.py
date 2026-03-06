@@ -106,6 +106,17 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     """Start all engines on boot, stop them on shutdown."""
     registry = get_engine_registry()
     logger.info("Starting engines...")
+
+    # Start the pool (all server clients) before engines
+    try:
+        from tessera.deps import get_technitium_pool
+
+        pool = get_technitium_pool()
+        await pool.start_all()
+        logger.info("TechnitiumPool started (%d servers)", len(pool.get_all()))
+    except Exception:
+        logger.exception("Failed to start TechnitiumPool")
+
     await registry.start_all()
 
     # Populate failover engine with scope names from primary
@@ -128,7 +139,45 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     yield
     logger.info("Stopping engines...")
     await registry.stop_all()
+
+    # Stop pool clients
+    try:
+        pool = get_technitium_pool()
+        await pool.stop_all()
+    except Exception:
+        logger.exception("Failed to stop TechnitiumPool")
+
     logger.info("All engines stopped.")
+
+
+_OPENAPI_TAGS: list[dict[str, str]] = [
+    {"name": "health", "description": "Liveness and readiness probes."},
+    {
+        "name": "failover",
+        "description": "Failover status, voter quorum, and manual promotion.",
+    },
+    {
+        "name": "scopes",
+        "description": "DHCP scope CRUD — list, inspect, enable/disable.",
+    },
+    {"name": "leases", "description": "Active lease queries per scope."},
+    {
+        "name": "backups",
+        "description": "Configuration snapshots and restore operations.",
+    },
+    {
+        "name": "enforcement",
+        "description": "Drift detection and automatic rollback.",
+    },
+    {
+        "name": "servers",
+        "description": "Multi-server pool status and management.",
+    },
+    {
+        "name": "voters",
+        "description": "Voter registration, approval, and key management.",
+    },
+]
 
 
 def create_app() -> FastAPI:
@@ -142,7 +191,20 @@ def create_app() -> FastAPI:
         title=settings.app_name,
         debug=settings.debug,
         lifespan=lifespan,
+        openapi_tags=_OPENAPI_TAGS,
     )
+
+    # CORS — only add middleware if origins are configured
+    if settings.cors_origins:
+        from starlette.middleware.cors import CORSMiddleware
+
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=settings.cors_origins,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
 
     from tessera.api.v1 import router as v1_router
     from tessera.pages import router as pages_router
@@ -163,6 +225,7 @@ def create_app() -> FastAPI:
         finally:
             request_id_ctx.reset(token)
         response.headers["X-Request-ID"] = rid
+        response.headers["X-API-Version"] = "v1"
         return response
 
     @app.middleware("http")

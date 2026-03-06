@@ -6,7 +6,7 @@ Serves thin HTML shells that mount per-page Vite-built Preact bundles.
 from __future__ import annotations
 
 import re
-from functools import lru_cache
+import time
 from pathlib import Path
 
 from fastapi import APIRouter, Request
@@ -18,9 +18,23 @@ DIST_DIR = Path(__file__).parent / "static" / "dist"
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 router = APIRouter()
 
+_ASSET_MAP_TTL = 300  # seconds — rebuild asset map after this duration
+_asset_map_cache: dict[str, dict[str, str]] = {}
+_asset_map_ts: float = 0.0
 
-@lru_cache(maxsize=1)
+
 def _build_asset_map() -> dict[str, dict[str, str]]:
+    """Return cached asset map, rebuilding when TTL expires."""
+    global _asset_map_cache, _asset_map_ts
+    now = time.monotonic()
+    if _asset_map_cache and (now - _asset_map_ts) < _ASSET_MAP_TTL:
+        return _asset_map_cache
+    _asset_map_cache = _scan_assets()
+    _asset_map_ts = now
+    return _asset_map_cache
+
+
+def _scan_assets() -> dict[str, dict[str, str]]:
     """Scan dist/ for hashed filenames and build entry→path mapping.
 
     Returns:

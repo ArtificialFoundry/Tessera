@@ -79,3 +79,10 @@ class RateLimitError(AppError):
         self.retry_after = retry_after
         msg = f"Voter '{voter}' rate-limited; retry after {retry_after:.0f}s"
         super().__init__(msg)
+
+
+class RegistrationError(AppError):
+    """A voter registration operation failed."""
+
+    def __init__(self, message: str = "Registration failed") -> None:
+        super().__init__(message)

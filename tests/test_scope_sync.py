@@ -96,7 +96,7 @@ class TestScopeSyncEngine:
     async def test_sync_without_clients_raises(self) -> None:
         """Sync without configured clients raises ScopeSyncError."""
         engine = ScopeSyncEngine()
-        with pytest.raises(ScopeSyncError, match="Clients not configured"):
+        with pytest.raises(ScopeSyncError, match="clients not configured"):
             await engine.sync_once()
 
     async def test_health_after_sync(self, sync_engine: ScopeSyncEngine) -> None:

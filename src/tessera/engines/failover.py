@@ -1,8 +1,8 @@
 """DHCP failover engine with voter quorum and state machine.
 
-Manages primary/standby failover for Technitium DHCP service.
-Voters submit health checks; when quorum determines primary is down,
-standby DHCP scopes are activated.
+Manages active/candidate failover for Technitium DHCP service.
+Voters submit health checks; when quorum determines active server is down,
+candidate DHCP scopes are activated.
 """
 
 from __future__ import annotations
@@ -18,7 +18,8 @@ from tessera.exceptions import AuthenticationError, RateLimitError
 from tessera.registry import Engine, EngineHealth, EngineStatus
 
 if TYPE_CHECKING:
-    from tessera.engines.technitium import TechnitiumClient
+    from tessera.engines.technitium import TechnitiumClient, TechnitiumPool
+    from tessera.engines.voter_registry import VoterRegistryEngine
 
 logger = logging.getLogger(__name__)
 
@@ -110,10 +111,10 @@ def verify_vote_signature(
 class FailoverEngine(Engine):
     """Quorum-based DHCP failover state machine.
 
-    Collects votes from VMs about primary DHCP health.
-    When quorum says primary is down for enough consecutive rounds,
-    activates standby DHCP scopes. When primary recovers,
-    deactivates standby scopes (failback).
+    Collects votes from VMs about active DHCP health.
+    When quorum says active server is down for enough consecutive rounds,
+    activates candidate DHCP scopes. When primary recovers,
+    deactivates candidate scopes (failback).
 
     Attributes:
         name: Engine identifier.
@@ -150,25 +151,44 @@ class FailoverEngine(Engine):
         self._consecutive_up: int = 0
         self._transitions: list[TransitionEvent] = []
         self._last_evaluation: float = 0.0
-        self._standby_client: Any = None
-        self._primary_client: TechnitiumClient | None = None
+        self._pool: TechnitiumPool | None = None
+        # Legacy single-client references (kept for backward compat)
+        self._candidate_client: Any = None
+        self._active_client: TechnitiumClient | None = None
         self._scope_names: list[str] = []
+        self._voter_registry: VoterRegistryEngine | None = None
 
-    def set_standby_client(self, client: Any) -> None:
+    def set_pool(self, pool: TechnitiumPool) -> None:
+        """Set the TechnitiumPool for multi-server failover.
+
+        Args:
+            pool: The pool managing all DHCP servers.
+        """
+        self._pool = pool
+
+    def set_voter_registry(self, registry: VoterRegistryEngine) -> None:
+        """Set the voter registry for grace-period PSK lookups.
+
+        Args:
+            registry: The voter registry engine.
+        """
+        self._voter_registry = registry
+
+    def set_candidate_client(self, client: Any) -> None:
         """Set the standby Technitium client for scope activation.
 
         Args:
-            client: TechnitiumClient for the standby server.
+            client: TechnitiumClient for the candidate server.
         """
-        self._standby_client = client
+        self._candidate_client = client
 
-    def set_primary_client(self, client: TechnitiumClient) -> None:
+    def set_active_client(self, client: TechnitiumClient) -> None:
         """Set the primary Technitium client for vote verification.
 
         Args:
             client: TechnitiumClient for the primary server.
         """
-        self._primary_client = client
+        self._active_client = client
 
     def set_scope_names(self, names: list[str]) -> None:
         """Set the list of scope names to manage on failover.
@@ -177,6 +197,22 @@ class FailoverEngine(Engine):
             names: DHCP scope names to enable/disable on standby.
         """
         self._scope_names = names
+
+    def update_voter_keys(self, keys: dict[str, str]) -> None:
+        """Atomically swap the voter PSK map.
+
+        Existing votes from removed voters are immediately invalidated.
+
+        Args:
+            keys: New voter name → PSK mapping.
+        """
+        removed = set(self._voter_keys.keys()) - set(keys.keys())
+        for voter in removed:
+            self._votes.pop(voter, None)
+            self._vote_timestamps.pop(voter, None)
+            logger.info("Voter removed and votes invalidated: %s", voter)
+        self._voter_keys = dict(keys)
+        logger.info("Voter keys updated: %d voters", len(keys))
 
     @property
     def state(self) -> FailoverState:
@@ -251,7 +287,14 @@ class FailoverEngine(Engine):
             raise AuthenticationError("Timestamp too far from server time")
 
         psk = self._voter_keys[voter]
-        if not verify_vote_signature(voter, status, timestamp_val, signature, psk):
+        # Check against current PSK and any grace-period PSKs
+        valid_psks = [psk]
+        if self._voter_registry:
+            valid_psks = self._voter_registry.get_valid_psks(voter) or valid_psks
+        if not any(
+            verify_vote_signature(voter, status, timestamp_val, signature, p)
+            for p in valid_psks
+        ):
             raise AuthenticationError("Invalid signature")
 
         vote_status = VoteStatus(status.lower())
@@ -266,62 +309,86 @@ class FailoverEngine(Engine):
         cutoff = time.time() - self._vote_ttl
         return [v for v in self._votes.values() if v.received_at >= cutoff]
 
-    async def _verify_primary_health(self) -> bool | None:
+    def _get_active_client(self) -> TechnitiumClient | None:
+        """Get the primary client from pool or legacy reference."""
+        if self._pool:
+            try:
+                return self._pool.get_active()
+            except Exception:
+                return None
+        return self._active_client
+
+    def _get_candidate_client(self) -> Any:
+        """Get the standby client from pool or legacy reference."""
+        if self._pool:
+            return self._pool.get_candidate()
+        return self._candidate_client
+
+    def _get_candidate_clients(self) -> list[Any]:
+        """Get all candidate clients from pool or legacy single client."""
+        if self._pool:
+            return self._pool.get_candidates()
+        if self._candidate_client:
+            return [self._candidate_client]
+        return []
+
+    async def _verify_active_health(self) -> bool | None:
         """Query the primary Technitium for DHCP health.
 
         Returns:
-            True if primary is healthy (has enabled scopes),
+            True if active is healthy (has enabled scopes),
             False if reachable but unhealthy,
             None if unreachable (timeout/connection error).
         """
-        if not self._primary_client:
-            logger.warning("No primary client configured — skipping verification")
+        primary = self._get_active_client()
+        if not primary:
+            logger.warning("No active client configured — skipping verification")
             return None
         try:
             scopes = await asyncio.wait_for(
-                self._primary_client.list_scopes(),
+                primary.list_scopes(),
                 timeout=10.0,
             )
             enabled = [s for s in scopes if s.get("enabled", False)]
             if not enabled:
-                logger.info("Primary reachable but no enabled scopes")
+                logger.info("Active reachable but no enabled scopes")
                 return False
             return True
         except TimeoutError:
-            logger.info("Primary health check timed out")
+            logger.info("Active health check timed out")
             return None
         except Exception:
-            logger.info("Primary health check failed", exc_info=True)
+            logger.info("Active health check failed", exc_info=True)
             return None
 
     def _verify_votes(
-        self, votes: list[Vote], primary_healthy: bool | None
+        self, votes: list[Vote], active_healthy: bool | None
     ) -> list[Vote]:
-        """Cross-validate votes against server-side primary health.
+        """Cross-validate votes against server-side active health.
 
         Args:
             votes: Active votes to verify.
-            primary_healthy: True/False/None from _verify_primary_health.
+            active_healthy: True/False/None from _verify_active_health.
 
         Returns:
             List of votes that should count (VERIFIED + UNVERIFIED).
         """
         counted: list[Vote] = []
         for vote in votes:
-            if primary_healthy is None:
+            if active_healthy is None:
                 # Can't reach primary — trust voter, leave UNVERIFIED
                 vote.verification = VoteVerification.UNVERIFIED
                 counted.append(vote)
-            elif primary_healthy and vote.status == VoteStatus.DOWN:
+            elif active_healthy and vote.status == VoteStatus.DOWN:
                 vote.verification = VoteVerification.CONFLICT
                 logger.warning(
-                    "CONFLICT: voter %s says down but primary is healthy",
+                    "CONFLICT: voter %s says down but active is healthy",
                     vote.voter,
                 )
-            elif not primary_healthy and vote.status == VoteStatus.UP:
+            elif not active_healthy and vote.status == VoteStatus.UP:
                 vote.verification = VoteVerification.CONFLICT
                 logger.warning(
-                    "CONFLICT: voter %s says up but primary is unhealthy",
+                    "CONFLICT: voter %s says up but active is unhealthy",
                     vote.voter,
                 )
             else:
@@ -329,36 +396,64 @@ class FailoverEngine(Engine):
                 counted.append(vote)
         return counted
 
-    async def _activate_standby_scopes(self) -> None:
-        """Enable all DHCP scopes on the standby server."""
-        if not self._standby_client:
-            logger.error("No standby client configured — cannot activate scopes")
+    async def _activate_candidate_scopes(self) -> None:
+        """Enable all DHCP scopes on all candidate servers."""
+        standbys = self._get_candidate_clients()
+        if not standbys:
+            logger.error("No candidate clients configured — cannot activate scopes")
             return
-        for name in self._scope_names:
-            try:
-                await self._standby_client.enable_scope(name)
-                logger.info("Enabled standby scope: %s", name)
-            except Exception:
-                logger.exception("Failed to enable standby scope: %s", name)
+        for standby in standbys:
+            for name in self._scope_names:
+                try:
+                    await standby.enable_scope(name)
+                    sname = getattr(standby, "server_name", "unknown")
+                    logger.info("Enabled standby scope %s on %s", name, sname)
+                except Exception:
+                    logger.exception("Failed to enable standby scope: %s", name)
 
-    async def _deactivate_standby_scopes(self) -> None:
-        """Disable all DHCP scopes on the standby server."""
-        if not self._standby_client:
-            logger.error("No standby client configured — cannot deactivate scopes")
+    async def _deactivate_candidate_scopes(self) -> None:
+        """Disable all DHCP scopes on all candidate servers."""
+        standbys = self._get_candidate_clients()
+        if not standbys:
+            logger.error("No candidate clients configured — cannot deactivate scopes")
             return
-        for name in self._scope_names:
-            try:
-                await self._standby_client.disable_scope(name)
-                logger.info("Disabled standby scope: %s", name)
-            except Exception:
-                logger.exception("Failed to disable standby scope: %s", name)
+        for standby in standbys:
+            for name in self._scope_names:
+                try:
+                    await standby.disable_scope(name)
+                    sname = getattr(standby, "server_name", "unknown")
+                    logger.info("Disabled standby scope %s on %s", name, sname)
+                except Exception:
+                    logger.exception("Failed to disable standby scope: %s", name)
+
+    async def _do_failover(self) -> None:
+        """Execute failover: promote highest-priority standby, activate scopes."""
+        if self._pool:
+            standby = self._pool.get_candidate()
+            if standby:
+                active_name: str | None = None
+                for name, client in self._pool._clients.items():
+                    if self._pool._roles.get(name) == "active":
+                        active_name = name
+                        break
+                self._pool.promote(standby.server_name)
+                logger.warning(
+                    "FAILOVER: promoted 0 (was: %s)",
+                    standby.server_name,
+                    active_name,
+                )
+        await self._activate_candidate_scopes()
+
+    async def _do_failback(self) -> None:
+        """Execute failback: deactivate candidate scopes."""
+        await self._deactivate_candidate_scopes()
 
     async def evaluate_quorum(self) -> dict[str, Any]:
         """Evaluate current votes and potentially transition state.
 
         Runs server-side verification against the primary before counting.
         CONFLICT votes are excluded from quorum. When a transition occurs,
-        scopes on the standby server are enabled (failover) or disabled
+        scopes on the candidate server are enabled (failover) or disabled
         (failback) automatically.
 
         Returns:
@@ -367,8 +462,8 @@ class FailoverEngine(Engine):
         active = self._active_votes()
 
         # Server-side cross-validation
-        primary_healthy = await self._verify_primary_health()
-        counted = self._verify_votes(active, primary_healthy)
+        active_healthy = await self._verify_active_health()
+        counted = self._verify_votes(active, active_healthy)
 
         up_count = sum(1 for v in counted if v.status == VoteStatus.UP)
         down_count = sum(1 for v in counted if v.status == VoteStatus.DOWN)
@@ -403,7 +498,7 @@ class FailoverEngine(Engine):
             )
             self._transitions.append(event)
             logger.warning("FAILOVER ACTIVATED: %s", event.reason)
-            await self._activate_standby_scopes()
+            await self._do_failover()
 
         elif (
             self._state == FailoverState.ACTIVE
@@ -420,8 +515,8 @@ class FailoverEngine(Engine):
                 ),
             )
             self._transitions.append(event)
-            logger.info("FAILBACK: returned to standby: %s", event.reason)
-            await self._deactivate_standby_scopes()
+            logger.info("FAILBACK: returned to candidate: %s", event.reason)
+            await self._do_failback()
 
         return {
             "state": self._state.value,

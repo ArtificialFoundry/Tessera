@@ -1,4 +1,4 @@
-"""Technitium DNS Server DHCP API client.
+"""Technitium DNS Server DHCP API client and multi-server pool.
 
 Async HTTP client wrapping the Technitium DHCP API endpoints.
 SSL verification is disabled for self-signed certificates.
@@ -7,12 +7,15 @@ SSL verification is disabled for self-signed certificates.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
 from tessera.exceptions import TechnitiumError
 from tessera.registry import Engine, EngineHealth, EngineStatus
+
+if TYPE_CHECKING:
+    from tessera.config import DhcpServer
 
 logger = logging.getLogger(__name__)
 
@@ -30,17 +33,29 @@ class TechnitiumClient(Engine):
     version: str = "1.0.0"
     description: str = "Technitium DNS Server DHCP API client"
 
-    def __init__(self, base_url: str, token: str) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        token: str,
+        *,
+        server_name: str = "",
+        ca_cert_file: str = "",
+    ) -> None:
         super().__init__()
         self._base_url = base_url.rstrip("/")
         self._token = token
         self._client: httpx.AsyncClient | None = None
+        self.server_name = server_name
+        self._ca_cert_file = ca_cert_file
 
     async def start(self) -> None:
         """Initialize the HTTP client."""
+        verify: bool | str = False
+        if self._ca_cert_file:
+            verify = self._ca_cert_file
         self._client = httpx.AsyncClient(
             base_url=self._base_url,
-            verify=False,
+            verify=verify,
             timeout=httpx.Timeout(30.0),
         )
         logger.info("TechnitiumClient started for %s", self._base_url)
@@ -125,25 +140,14 @@ class TechnitiumClient(Engine):
         return result
 
     async def list_scopes(self) -> list[dict[str, Any]]:
-        """List all DHCP scopes.
-
-        Returns:
-            List of scope objects from Technitium.
-        """
+        """List all DHCP scopes."""
         result = await self._request("GET", "/api/dhcp/scopes/list")
         response: dict[str, Any] = result.get("response", {})
         scopes: list[dict[str, Any]] = response.get("scopes", [])
         return scopes
 
     async def get_scope(self, name: str) -> dict[str, Any]:
-        """Get detailed scope information including reservations.
-
-        Args:
-            name: Scope name.
-
-        Returns:
-            Scope detail object.
-        """
+        """Get detailed scope information including reservations."""
         result = await self._request(
             "GET", "/api/dhcp/scopes/get", params={"name": name}
         )
@@ -151,46 +155,24 @@ class TechnitiumClient(Engine):
         return response
 
     async def set_scope(self, name: str, settings: dict[str, Any]) -> None:
-        """Update scope settings.
-
-        Args:
-            name: Scope name.
-            settings: Key-value settings to update.
-        """
+        """Update scope settings."""
         data = {"name": name, **settings}
         await self._request("POST", "/api/dhcp/scopes/set", data=data)
 
     async def enable_scope(self, name: str) -> None:
-        """Enable a DHCP scope.
-
-        Args:
-            name: Scope name.
-        """
+        """Enable a DHCP scope."""
         await self._request("POST", "/api/dhcp/scopes/enable", data={"name": name})
 
     async def disable_scope(self, name: str) -> None:
-        """Disable a DHCP scope.
-
-        Args:
-            name: Scope name.
-        """
+        """Disable a DHCP scope."""
         await self._request("POST", "/api/dhcp/scopes/disable", data={"name": name})
 
     async def delete_scope(self, name: str) -> None:
-        """Delete a DHCP scope.
-
-        Args:
-            name: Scope name to delete.
-        """
+        """Delete a DHCP scope."""
         await self._request("POST", "/api/dhcp/scopes/delete", data={"name": name})
 
     async def remove_lease(self, scope_name: str, *, address: str) -> None:
-        """Remove/convert a dynamic lease from a scope.
-
-        Args:
-            scope_name: Target scope name.
-            address: IP address of the lease to remove.
-        """
+        """Remove/convert a dynamic lease from a scope."""
         await self._request(
             "POST",
             "/api/dhcp/leases/remove",
@@ -206,15 +188,7 @@ class TechnitiumClient(Engine):
         host_name: str = "",
         comments: str = "",
     ) -> None:
-        """Add a DHCP reservation to a scope.
-
-        Args:
-            scope_name: Target scope name.
-            hardware_address: MAC address.
-            address: Reserved IP address.
-            host_name: Optional hostname.
-            comments: Optional comments.
-        """
+        """Add a DHCP reservation to a scope."""
         data: dict[str, Any] = {
             "name": scope_name,
             "hardwareAddress": hardware_address,
@@ -229,12 +203,7 @@ class TechnitiumClient(Engine):
     async def remove_reservation(
         self, scope_name: str, *, hardware_address: str
     ) -> None:
-        """Remove a DHCP reservation from a scope.
-
-        Args:
-            scope_name: Target scope name.
-            hardware_address: MAC address to remove.
-        """
+        """Remove a DHCP reservation from a scope."""
         await self._request(
             "POST",
             "/api/dhcp/scopes/removeReservedLease",
@@ -242,17 +211,231 @@ class TechnitiumClient(Engine):
         )
 
     async def get_leases(self, scope_name: str) -> list[dict[str, Any]]:
-        """Get active leases for a scope.
-
-        Args:
-            scope_name: Scope name.
-
-        Returns:
-            List of lease objects.
-        """
+        """Get active leases for a scope."""
         result = await self._request(
             "GET", "/api/dhcp/leases/list", params={"name": scope_name}
         )
         response: dict[str, Any] = result.get("response", {})
         leases: list[dict[str, Any]] = response.get("leases", [])
         return leases
+
+
+class TechnitiumPool:
+    """Manages multiple TechnitiumClient instances for N-server failover.
+
+    Tracks server roles (primary, standby, observer) and supports
+    runtime promotion/demotion.
+    """
+
+    def __init__(self, token: str, *, ca_cert_file: str = "") -> None:
+        self._token = token
+        self._ca_cert_file = ca_cert_file
+        self._clients: dict[str, TechnitiumClient] = {}
+        self._roles: dict[str, str] = {}  # name -> role
+        self._priorities: dict[str, int] = {}  # name -> priority
+
+    @classmethod
+    def from_servers(
+        cls, servers: list[DhcpServer], token: str, *, ca_cert_file: str = "",
+    ) -> TechnitiumPool:
+        """Create a pool from a list of DhcpServer configs.
+
+        Args:
+            servers: Server configurations.
+            token: Technitium API token.
+            ca_cert_file: Optional CA certificate bundle path.
+
+        Returns:
+            A configured TechnitiumPool.
+        """
+        pool = cls(token=token, ca_cert_file=ca_cert_file)
+        for server in servers:
+            client = TechnitiumClient(
+                base_url=server.url,
+                token=token,
+                server_name=server.name,
+                ca_cert_file=ca_cert_file,
+            )
+            pool._clients[server.name] = client
+            pool._roles[server.name] = server.role
+            pool._priorities[server.name] = server.priority
+        return pool
+
+    async def start_all(self) -> None:
+        """Start all clients in the pool."""
+        for client in self._clients.values():
+            await client.start()
+
+    async def stop_all(self) -> None:
+        """Stop all clients in the pool."""
+        for client in self._clients.values():
+            await client.stop()
+
+    def get_active(self) -> TechnitiumClient:
+        """Return the current primary client.
+
+        Raises:
+            TechnitiumError: If no primary server is configured.
+        """
+        for name, role in self._roles.items():
+            if role == "active":
+                return self._clients[name]
+        raise TechnitiumError("No active server configured", status_code=0)
+
+    def get_candidate(self) -> TechnitiumClient | None:
+        """Return the highest-priority standby client, or None."""
+        standbys = [
+            (name, self._priorities[name])
+            for name, role in self._roles.items()
+            if role == "candidate"
+        ]
+        if not standbys:
+            return None
+        standbys.sort(key=lambda x: x[1])
+        return self._clients[standbys[0][0]]
+
+    def get_candidates(self) -> list[TechnitiumClient]:
+        """Return all standby clients sorted by priority."""
+        standbys = [
+            (name, self._priorities[name])
+            for name, role in self._roles.items()
+            if role == "candidate"
+        ]
+        standbys.sort(key=lambda x: x[1])
+        return [self._clients[name] for name, _ in standbys]
+
+    def get_all(self) -> list[TechnitiumClient]:
+        """Return all clients."""
+        return list(self._clients.values())
+
+    def get_client(self, name: str) -> TechnitiumClient | None:
+        """Return a client by server name."""
+        return self._clients.get(name)
+
+    def get_role(self, name: str) -> str | None:
+        """Return the current role of a server."""
+        return self._roles.get(name)
+
+    def promote(self, server_name: str) -> None:
+        """Promote a server to primary, demoting the current primary.
+
+        Args:
+            server_name: Name of the server to promote.
+
+        Raises:
+            TechnitiumError: If the server is not found or is an observer.
+        """
+        if server_name not in self._clients:
+            raise TechnitiumError(
+                f"Server not found: {server_name}", status_code=0
+            )
+        if self._roles[server_name] == "observer":
+            raise TechnitiumError(
+                f"Cannot promote observer: {server_name}", status_code=0
+            )
+        # Demote current primary to standby
+        for name, role in self._roles.items():
+            if role == "active":
+                self._roles[name] = "candidate"
+                logger.info("Demoted %s from primary to standby", name)
+                break
+        self._roles[server_name] = "active"
+        logger.info("Promoted %s to primary", server_name)
+
+    def demote(self, server_name: str) -> None:
+        """Demote a server to standby.
+
+        Args:
+            server_name: Name of the server to demote.
+
+        Raises:
+            TechnitiumError: If the server is not found.
+        """
+        if server_name not in self._clients:
+            raise TechnitiumError(
+                f"Server not found: {server_name}", status_code=0
+            )
+        self._roles[server_name] = "candidate"
+        logger.info("Demoted %s to standby", server_name)
+
+    def get_server_states(self) -> list[dict[str, Any]]:
+        """Return current state of all servers.
+
+        Returns:
+            List of dicts with name, url, role, priority, and health info.
+        """
+        states: list[dict[str, Any]] = []
+        for name, client in self._clients.items():
+            states.append({
+                "name": name,
+                "url": client._base_url,
+                "role": self._roles[name],
+                "priority": self._priorities[name],
+                "status": client.health.status.value,
+                "message": client.health.message,
+            })
+        return states
+
+    async def check_health_all(self) -> dict[str, EngineHealth]:
+        """Check health of all servers in the pool.
+
+        Returns:
+            Dict of server name to EngineHealth.
+        """
+        results: dict[str, EngineHealth] = {}
+        for name, client in self._clients.items():
+            try:
+                results[name] = await client.check_health()
+            except Exception:
+                results[name] = EngineHealth(
+                    status=EngineStatus.DEGRADED,
+                    message="Health check failed",
+                )
+        return results
+
+    def update_servers(self, servers: list[DhcpServer]) -> list[str]:
+        """Update the server pool with a new config.
+
+        Adds new servers, removes deleted ones, updates roles/priorities.
+        Does NOT change running clients — caller must start/stop as needed.
+
+        Args:
+            servers: New server configurations.
+
+        Returns:
+            List of change descriptions.
+        """
+        changes: list[str] = []
+        new_names = {s.name for s in servers}
+        old_names = set(self._clients.keys())
+
+        # Remove deleted servers
+        for name in old_names - new_names:
+            del self._clients[name]
+            del self._roles[name]
+            del self._priorities[name]
+            changes.append(f"removed server {name}")
+
+        # Add/update servers
+        for server in servers:
+            if server.name not in old_names:
+                client = TechnitiumClient(
+                    base_url=server.url,
+                    token=self._token,
+                    server_name=server.name,
+                    ca_cert_file=self._ca_cert_file,
+                )
+                self._clients[server.name] = client
+                self._roles[server.name] = server.role
+                self._priorities[server.name] = server.priority
+                changes.append(f"added server {server.name} ({server.role})")
+            else:
+                if self._priorities[server.name] != server.priority:
+                    self._priorities[server.name] = server.priority
+                    changes.append(
+                        f"updated priority for {server.name} to {server.priority}"
+                    )
+                # Role changes via config only update priority, not role
+                # (role changes happen via API promote/demote)
+
+        return changes
