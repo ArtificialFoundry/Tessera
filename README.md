@@ -231,58 +231,111 @@ Voters are lightweight agents deployed on infrastructure VMs. Each voter
 independently checks primary DHCP health and submits a signed vote to Tessera
 every 30 seconds.
 
-### Install voter agent
+### Quick install (recommended)
 
-On each voter host:
+One command per host — handles dependencies, config, systemd, SELinux, and validation:
 
 ```bash
-# Copy files
+sudo ./voter/tessera-install-voter.sh \
+  --tessera-url http://192.0.2.10:8780 \
+  --primary-ip 192.0.2.1
+```
+
+The installer will:
+- Auto-detect the hostname as voter name
+- Generate a new HMAC PSK (printed for you to add to `voters.json`)
+- Install `nmap` for real DHCP probing
+- Create `/etc/tessera/voter.conf`
+- Install the voter script to `/usr/local/bin/`
+- Set up systemd timer (30s) or cron fallback (1min)
+- Handle SELinux contexts on RHEL/AlmaLinux
+- Check firewall rules and warn if restrictive
+- Validate connectivity and submit a test vote
+
+Supports RHEL/AlmaLinux, Debian/Ubuntu, Alpine, openSUSE, and any system
+with systemd or cron.
+
+#### Full options
+
+```bash
+sudo ./voter/tessera-install-voter.sh \
+  --name voter-2    \
+  --tessera-url http://192.0.2.10:8780 \
+  --primary-ip 192.0.2.1 \
+  --psk "$(openssl rand -hex 32)" \
+  --check-method both \
+  --interface eth0
+```
+
+Run `./voter/tessera-install-voter.sh --help` for all options.
+
+#### Idempotent re-runs
+
+Safe to re-run — updates config and restarts services without duplicating anything:
+
+```bash
+# Update Tessera URL
+sudo ./voter/tessera-install-voter.sh \
+  --tessera-url http://new-tessera-host:8780 \
+  --primary-ip 192.0.2.1
+```
+
+#### Uninstall
+
+```bash
+sudo ./voter/tessera-install-voter.sh --uninstall
+```
+
+### Manual install
+
+If you prefer to set things up by hand:
+
+```bash
+# 1. Copy files
 sudo cp voter/tessera-voter.sh /usr/local/bin/tessera-voter.sh
 sudo chmod +x /usr/local/bin/tessera-voter.sh
 sudo cp voter/tessera-voter.service voter/tessera-voter.timer /etc/systemd/system/
-```
 
-### Configure voter
-
-Create `/etc/tessera/voter.conf`:
-
-```bash
-VOTER_NAME="hostname-here"
-VOTER_PSK="matching-hmac-psk-from-voters-json"
-TESSERA_URL="http://apps-1-ip:8780"
-PRIMARY_IP="primary-dns-ip"
+# 2. Configure
+sudo mkdir -p /etc/tessera
+sudo tee /etc/tessera/voter.conf <<EOF
+VOTER_NAME="$(hostname -s)"
+VOTER_PSK="$(openssl rand -hex 32)"
+TESSERA_URL="http://192.0.2.10:8780"
+PRIMARY_IP="192.0.2.1"
 PRIMARY_PORT=53443
 CHECK_TIMEOUT=5
+CHECK_METHOD="dhcp"
+DHCP_INTERFACE=""
+EOF
+sudo chmod 600 /etc/tessera/voter.conf
 
-# DHCP verification (optional, requires nmap + root)
-CHECK_METHOD="dhcp"       # dhcp (default), http, or both
-DHCP_INTERFACE=""         # auto-detect if empty
-```
-
-### Enable voter
-
-```bash
+# 3. Enable
 sudo systemctl daemon-reload
 sudo systemctl enable --now tessera-voter.timer
-
-# Verify
-systemctl list-timers tessera-voter.timer
-journalctl -u tessera-voter -f
 ```
 
 ### DHCP probe mode
 
-By default, voters use `nmap --script broadcast-dhcp-discover` to verify the
-DHCP service is actually serving (not just the web API). This requires:
+By default, voters use `nmap --script broadcast-dhcp-discover` to send a real
+DHCP DISCOVER and verify the primary server responds with a DHCP OFFER. This
+proves the DHCP service is alive — not just the web API.
+
+The installer handles nmap installation automatically. For manual installs:
 
 ```bash
 sudo dnf install nmap    # RHEL/AlmaLinux
 sudo apt install nmap    # Debian/Ubuntu
 ```
 
-If nmap isn't installed, the voter falls back to an HTTP health check against
-the Technitium API. Set `CHECK_METHOD="http"` to force HTTP-only, or
-`CHECK_METHOD="both"` to require both checks to pass.
+| Method | What it checks | Requires |
+|--------|---------------|----------|
+| `dhcp` (default) | Actual DHCP OFFER from primary | nmap + root |
+| `http` | Technitium web API responds | curl |
+| `both` | Both DHCP and HTTP must pass | nmap + curl + root |
+
+If nmap isn't installed and `CHECK_METHOD="dhcp"`, the voter falls back to HTTP
+automatically.
 
 ---
 
@@ -373,9 +426,10 @@ src/tessera/
     └── page.html       # SPA shell template
 
 voter/
-├── tessera-voter.sh      # Voter agent script
-├── tessera-voter.service # systemd oneshot unit
-└── tessera-voter.timer   # systemd timer (30s)
+├── tessera-install-voter.sh # Automated installer (recommended)
+├── tessera-voter.sh         # Voter agent script
+├── tessera-voter.service    # systemd oneshot unit
+└── tessera-voter.timer      # systemd timer (30s)
 ```
 
 ## License
