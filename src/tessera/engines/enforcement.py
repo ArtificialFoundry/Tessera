@@ -235,7 +235,7 @@ class EnforcementEngine(Engine):
         if not self._backup_engine:
             raise EnforcementError("Backup engine not configured")
         # Validate backup exists
-        self._backup_engine.get_backup(backup_id)
+        await self._backup_engine.get_backup(backup_id)
         self._state.pinned_backup_id = backup_id
         logger.info("Pinned backup: %s", backup_id)
 
@@ -313,7 +313,7 @@ class EnforcementEngine(Engine):
         if not self._state.pinned_backup_id:
             raise EnforcementError("No backup pinned")
 
-        backup = self._backup_engine.get_backup(self._state.pinned_backup_id)
+        backup = await self._backup_engine.get_backup(self._state.pinned_backup_id)
         self._state.last_check = time.time()
 
         # Use dry_run to detect drift

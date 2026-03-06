@@ -96,6 +96,7 @@ class TestEnforcementEngine:
         manifest = await backup_eng.create_backup()
         await engine.pin_backup(manifest.backup_id)
         engine.set_mode(EnforcementMode.MONITOR)
+        await engine.stop()
         assert engine.mode == EnforcementMode.MONITOR
 
     def test_set_mode_without_pin_raises(self, engine: EnforcementEngine) -> None:
@@ -124,6 +125,7 @@ class TestEnforcementEngine:
         manifest = await backup_eng.create_backup()
         await engine.pin_backup(manifest.backup_id)
         engine.set_mode(EnforcementMode.MONITOR)
+        await engine.stop()
         result = await engine.check_drift()
         assert result["drift_detected"] is False
 
@@ -138,6 +140,7 @@ class TestEnforcementEngine:
         manifest = await backup_eng.create_backup()
         await engine.pin_backup(manifest.backup_id)
         engine.set_mode(EnforcementMode.MONITOR)
+        await engine.stop()
 
         # Simulate drift: remove reservation
         mock_primary.get_scope = AsyncMock(
@@ -163,6 +166,7 @@ class TestEnforcementEngine:
         manifest = await backup_eng.create_backup()
         await engine.pin_backup(manifest.backup_id)
         engine.set_mode(EnforcementMode.ENFORCE)
+        await engine.stop()
 
         # Simulate drift
         mock_primary.get_scope = AsyncMock(
@@ -194,6 +198,7 @@ class TestEnforcementEngine:
         manifest = await backup_eng.create_backup()
         await engine.pin_backup(manifest.backup_id)
         engine.set_mode(EnforcementMode.MONITOR)
+        await engine.stop()
 
         # Generate unique drifts by varying the reservation IP each iteration
         for i in range(55):
@@ -225,6 +230,7 @@ class TestEnforcementEngine:
         manifest = await backup_eng.create_backup()
         await engine.pin_backup(manifest.backup_id)
         engine.set_mode(EnforcementMode.MONITOR)
+        await engine.stop()
 
         # Same drift every time: reservation removed
         mock_primary.get_scope = AsyncMock(
@@ -252,6 +258,7 @@ class TestEnforcementEngine:
         manifest = await backup_eng.create_backup()
         await engine.pin_backup(manifest.backup_id)
         engine.set_mode(EnforcementMode.MONITOR)
+        await engine.stop()
 
         # First drift: reservation removed
         mock_primary.get_scope = AsyncMock(

@@ -76,7 +76,7 @@ async def list_backups(
     engine: BackupEngine = Depends(get_backup_engine),
 ) -> BackupListResponse:
     """List stored backups (paginated)."""
-    all_manifests = engine.list_backups()
+    all_manifests = await engine.list_backups()
     total = len(all_manifests)
     page = all_manifests[offset : offset + limit]
     return BackupListResponse(
@@ -123,7 +123,7 @@ async def get_backup(
 ) -> BackupDetailResponse:
     """Get a specific backup with full scope data."""
     try:
-        backup = engine.get_backup(backup_id)
+        backup = await engine.get_backup(backup_id)
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

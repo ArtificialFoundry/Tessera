@@ -15,7 +15,7 @@ from tessera.api.schemas import (
     VoterInfo,
 )
 from tessera.deps import get_failover_engine
-from tessera.exceptions import AuthenticationError
+from tessera.exceptions import AuthenticationError, RateLimitError
 
 if TYPE_CHECKING:
     from tessera.engines.failover import FailoverEngine
@@ -38,6 +38,12 @@ async def submit_vote(
         )
     except AuthenticationError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except RateLimitError as exc:
+        raise HTTPException(
+            status_code=429,
+            detail=str(exc),
+            headers={"Retry-After": str(int(exc.retry_after) + 1)},
+        ) from exc
 
     await failover.evaluate_quorum()
 

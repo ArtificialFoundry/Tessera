@@ -1,6 +1,20 @@
+# tessera-voter.service — oneshot voter agent for Tessera DHCP failover
+#
+# Install:
+#   sudo cp tessera-voter.service tessera-voter.timer /etc/systemd/system/
+#   sudo cp tessera-voter.sh /usr/local/bin/tessera-voter.sh
+#   sudo chmod +x /usr/local/bin/tessera-voter.sh
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now tessera-voter.timer
+
 [Unit]
-Description=Tessera DHCP failover voter
+Description=Tessera DHCP failover voter agent
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=oneshot
 ExecStart=/usr/local/bin/tessera-voter.sh
+TimeoutStartSec=30
+# Environment file for TESSERA_URL, VOTER_NAME, VOTER_PSK
+EnvironmentFile=-/etc/tessera/voter.env

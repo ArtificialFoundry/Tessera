@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum, auto
 from typing import Any
 
-from tessera.exceptions import AuthenticationError
+from tessera.exceptions import AuthenticationError, RateLimitError
 from tessera.registry import Engine, EngineHealth, EngineStatus
 
 logger = logging.getLogger(__name__)
@@ -121,15 +121,18 @@ class FailoverEngine(Engine):
         failback_rounds: int = 5,
         vote_ttl: int = 90,
         voter_keys: dict[str, str] | None = None,
+        vote_cooldown: float = 10.0,
     ) -> None:
         super().__init__()
         self._quorum = quorum
         self._failover_rounds = failover_rounds
         self._failback_rounds = failback_rounds
         self._vote_ttl = vote_ttl
+        self._vote_cooldown = vote_cooldown
         self._voter_keys: dict[str, str] = voter_keys or {}
         self._state = FailoverState.STANDBY
         self._votes: dict[str, Vote] = {}
+        self._vote_timestamps: dict[str, float] = {}
         self._consecutive_down: int = 0
         self._consecutive_up: int = 0
         self._transitions: list[TransitionEvent] = []
@@ -214,6 +217,14 @@ class FailoverEngine(Engine):
             raise AuthenticationError(f"Unknown voter: {voter}")
 
         now = time.time()
+
+        # Per-voter rate limiting
+        last_vote_time = self._vote_timestamps.get(voter, 0.0)
+        elapsed = now - last_vote_time
+        if elapsed < self._vote_cooldown:
+            retry_after = self._vote_cooldown - elapsed
+            raise RateLimitError(voter, retry_after)
+
         if abs(now - timestamp_val) > 60:
             raise AuthenticationError("Timestamp too far from server time")
 
@@ -224,6 +235,7 @@ class FailoverEngine(Engine):
         vote_status = VoteStatus(status.lower())
         vote = Vote(voter=voter, status=vote_status, timestamp=float(timestamp_val))
         self._votes[voter] = vote
+        self._vote_timestamps[voter] = now
         logger.info("Vote received: %s = %s", voter, status)
         return vote
 

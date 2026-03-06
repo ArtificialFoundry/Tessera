@@ -81,14 +81,14 @@ class TestBackupEngine:
         await engine.start()
         await engine.create_backup(description="First")
         await engine.create_backup(description="Second")
-        backups = engine.list_backups()
+        backups = await engine.list_backups()
         assert len(backups) >= 1
 
     async def test_get_backup(self, engine: BackupEngine) -> None:
         """Get a specific backup by ID."""
         await engine.start()
         manifest = await engine.create_backup()
-        backup = engine.get_backup(manifest.backup_id)
+        backup = await engine.get_backup(manifest.backup_id)
         assert len(backup.scopes) == 2
         assert backup.scopes[0].name == "LAN"
         assert len(backup.scopes[0].reservations) == 1
@@ -97,7 +97,7 @@ class TestBackupEngine:
         """Getting a missing backup raises NotFoundError."""
         await engine.start()
         with pytest.raises(NotFoundError):
-            engine.get_backup("nonexistent")
+            await engine.get_backup("nonexistent")
 
     async def test_delete_backup(self, engine: BackupEngine) -> None:
         """Delete removes the backup file."""
@@ -105,7 +105,7 @@ class TestBackupEngine:
         manifest = await engine.create_backup()
         engine.delete_backup(manifest.backup_id)
         with pytest.raises(NotFoundError):
-            engine.get_backup(manifest.backup_id)
+            await engine.get_backup(manifest.backup_id)
 
     async def test_delete_nonexistent_raises(self, engine: BackupEngine) -> None:
         """Deleting a missing backup raises NotFoundError."""
@@ -125,7 +125,7 @@ class TestBackupEngine:
         await e.start()
         for i in range(4):
             await e.create_backup(description=f"Backup {i}")
-        backups = e.list_backups()
+        backups = await e.list_backups()
         assert len(backups) <= 2
 
     async def test_create_without_client_raises(self, tmp_path: Path) -> None:

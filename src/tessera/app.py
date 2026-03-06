@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
-from contextlib import asynccontextmanager
+import uuid
+from contextlib import asynccontextmanager, contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -14,14 +16,12 @@ from tessera.deps import get_engine_registry, get_settings
 from tessera.engines.failover import FailoverEngine
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Callable
+    from collections.abc import AsyncGenerator, Callable, Generator
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-)
-logging.getLogger("httpx").setLevel(logging.WARNING)
-logger = logging.getLogger(__name__)
+# ---------------------------------------------------------------------------
+# Request-ID context var
+# ---------------------------------------------------------------------------
+request_id_ctx: ContextVar[str] = ContextVar("request_id", default="")
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -44,6 +44,61 @@ _SECURITY_HEADERS: dict[str, str] = {
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
     "X-XSS-Protection": "0",
 }
+
+
+# ---------------------------------------------------------------------------
+# Logging setup
+# ---------------------------------------------------------------------------
+
+class _RequestIdFilter(logging.Filter):
+    """Inject ``request_id`` into every log record."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.request_id = request_id_ctx.get("")
+        return True
+
+
+def _configure_logging(*, debug: bool = False) -> None:
+    """Set up structured JSON logging (or human-readable in debug mode)."""
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG if debug else logging.INFO)
+
+    # Remove any existing handlers
+    root.handlers.clear()
+
+    handler = logging.StreamHandler()
+    handler.addFilter(_RequestIdFilter())
+
+    if debug:
+        handler.setFormatter(
+            logging.Formatter(
+                "%(asctime)s %(levelname)s [%(name)s] "
+                "[%(request_id)s] %(message)s",
+            )
+        )
+    else:
+        from pythonjsonlogger.json import JsonFormatter
+
+        handler.setFormatter(
+            JsonFormatter(
+                fmt="%(asctime)s %(levelname)s %(name)s %(request_id)s %(message)s",
+                rename_fields={"asctime": "timestamp", "levelname": "level"},
+            )
+        )
+
+    root.addHandler(handler)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
+
+@contextmanager
+def _suppress_import() -> Generator[None]:
+    """Silence import-time logging until we configure it ourselves."""
+    yield
+
+
+# Eagerly configure with defaults; overwritten in create_app once settings load.
+_configure_logging(debug=False)
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -79,6 +134,10 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
 def create_app() -> FastAPI:
     """Build and return a configured FastAPI application."""
     settings = get_settings()
+
+    # Reconfigure logging with actual settings
+    _configure_logging(debug=settings.debug)
+
     app = FastAPI(
         title=settings.app_name,
         debug=settings.debug,
@@ -90,6 +149,21 @@ def create_app() -> FastAPI:
 
     app.include_router(v1_router, prefix="/api/v1")
     app.include_router(pages_router)
+
+    @app.middleware("http")
+    async def request_id_middleware(
+        request: Request,
+        call_next: Callable[[Request], Any],
+    ) -> Response:
+        """Generate a request ID, store in context, and add response header."""
+        rid = request.headers.get("X-Request-ID") or uuid.uuid4().hex
+        token = request_id_ctx.set(rid)
+        try:
+            response: Response = await call_next(request)
+        finally:
+            request_id_ctx.reset(token)
+        response.headers["X-Request-ID"] = rid
+        return response
 
     @app.middleware("http")
     async def security_headers_middleware(

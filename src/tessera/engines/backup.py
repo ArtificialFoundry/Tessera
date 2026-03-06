@@ -202,7 +202,7 @@ class BackupEngine(Engine):
             if max_backups < 1:
                 raise BackupError("max_backups must be >= 1")
             self._max_backups = max_backups
-            self._enforce_retention()
+            self._enforce_retention_sync()
 
         if cron_schedule is not None:
             if cron_schedule and not croniter.is_valid(cron_schedule):
@@ -280,11 +280,21 @@ class BackupEngine(Engine):
             The backup manifest.
 
         Raises:
-            BackupError: If the primary client is not configured.
+            BackupError: If the primary client is not configured or timeout.
         """
         if not self._primary_client:
             raise BackupError("Primary client not configured")
 
+        try:
+            return await asyncio.wait_for(
+                self._do_create_backup(description), timeout=300.0
+            )
+        except TimeoutError as exc:
+            self._last_error = "Backup timed out after 300s"
+            raise BackupError(self._last_error) from exc
+
+    async def _do_create_backup(self, description: str) -> BackupManifest:
+        """Inner coroutine for create_backup (wrapped by wait_for)."""
         now = time.time()
         backup_id = time.strftime("%Y%m%d-%H%M%S", time.gmtime(now))
 
@@ -321,12 +331,13 @@ class BackupEngine(Engine):
 
         backup = BackupData(manifest=manifest, scopes=scope_snapshots)
         filepath = self._backup_dir / f"{backup_id}.json"
-        filepath.write_text(json.dumps(backup.to_dict(), indent=2))
+        content = json.dumps(backup.to_dict(), indent=2)
+        await asyncio.to_thread(filepath.write_text, content)
 
         self._last_backup = now
         self._backup_count += 1
         self._last_error = ""
-        self._enforce_retention()
+        await self._enforce_retention()
 
         logger.info(
             "Backup created: %s (%d scopes, %d reservations)",
@@ -336,12 +347,16 @@ class BackupEngine(Engine):
         )
         return manifest
 
-    def list_backups(self) -> list[BackupManifest]:
+    async def list_backups(self) -> list[BackupManifest]:
         """List all stored backups, newest first.
 
         Returns:
             List of backup manifests sorted by creation time descending.
         """
+        return await asyncio.to_thread(self._list_backups_sync)
+
+    def _list_backups_sync(self) -> list[BackupManifest]:
+        """Synchronous implementation of list_backups."""
         manifests: list[BackupManifest] = []
         for filepath in sorted(self._backup_dir.glob("*.json"), reverse=True):
             try:
@@ -351,7 +366,7 @@ class BackupEngine(Engine):
                 logger.warning("Skipping corrupt backup: %s", filepath.name)
         return manifests
 
-    def get_backup(self, backup_id: str) -> BackupData:
+    async def get_backup(self, backup_id: str) -> BackupData:
         """Load a specific backup by ID.
 
         Args:
@@ -366,7 +381,8 @@ class BackupEngine(Engine):
         filepath = self._backup_dir / f"{backup_id}.json"
         if not filepath.is_file():
             raise NotFoundError("Backup", backup_id)
-        data = json.loads(filepath.read_text())
+        text = await asyncio.to_thread(filepath.read_text)
+        data = json.loads(text)
         return BackupData.from_dict(data)
 
     def delete_backup(self, backup_id: str) -> None:
@@ -406,7 +422,7 @@ class BackupEngine(Engine):
         if not self._primary_client:
             raise BackupError("Primary client not configured")
 
-        backup = self.get_backup(backup_id)
+        backup = await self.get_backup(backup_id)
         return await self._apply_state(backup, dry_run=dry_run)
 
     async def _apply_state(
@@ -570,8 +586,12 @@ class BackupEngine(Engine):
             changes.append({"action": "reservation_removed", "detail": mac})
         return changes
 
-    def _enforce_retention(self) -> None:
+    async def _enforce_retention(self) -> None:
         """Delete oldest backups exceeding the retention limit."""
+        await asyncio.to_thread(self._enforce_retention_sync)
+
+    def _enforce_retention_sync(self) -> None:
+        """Synchronous implementation of retention enforcement."""
         backups = sorted(self._backup_dir.glob("*.json"))
         while len(backups) > self._max_backups:
             oldest = backups.pop(0)

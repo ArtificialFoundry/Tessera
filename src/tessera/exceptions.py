@@ -69,3 +69,13 @@ class TechnitiumError(AppError):
 
 class ScopeSyncError(AppError):
     """An error occurred during DHCP scope synchronisation."""
+
+
+class RateLimitError(AppError):
+    """A voter exceeded the per-voter rate limit."""
+
+    def __init__(self, voter: str, retry_after: float) -> None:
+        self.voter = voter
+        self.retry_after = retry_after
+        msg = f"Voter '{voter}' rate-limited; retry after {retry_after:.0f}s"
+        super().__init__(msg)

@@ -59,6 +59,7 @@ def failover_engine(voter_keys: dict[str, str]) -> FailoverEngine:
         failback_rounds=2,
         vote_ttl=90,
         voter_keys=voter_keys,
+        vote_cooldown=0,
     )
 
 
