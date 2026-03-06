@@ -7,14 +7,18 @@ standby DHCP scopes are activated.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
 from enum import StrEnum, auto
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from tessera.exceptions import AuthenticationError, RateLimitError
 from tessera.registry import Engine, EngineHealth, EngineStatus
+
+if TYPE_CHECKING:
+    from tessera.engines.technitium import TechnitiumClient
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +37,14 @@ class VoteStatus(StrEnum):
     DOWN = auto()
 
 
+class VoteVerification(StrEnum):
+    """Server-side verification result for a vote."""
+
+    VERIFIED = auto()
+    UNVERIFIED = auto()
+    CONFLICT = auto()
+
+
 @dataclass(slots=True)
 class Vote:
     """A single voter's health check submission.
@@ -48,6 +60,7 @@ class Vote:
     status: VoteStatus
     timestamp: float
     received_at: float = field(default_factory=time.time)
+    verification: VoteVerification = VoteVerification.UNVERIFIED
 
 
 @dataclass(slots=True)
@@ -138,6 +151,7 @@ class FailoverEngine(Engine):
         self._transitions: list[TransitionEvent] = []
         self._last_evaluation: float = 0.0
         self._standby_client: Any = None
+        self._primary_client: TechnitiumClient | None = None
         self._scope_names: list[str] = []
 
     def set_standby_client(self, client: Any) -> None:
@@ -147,6 +161,14 @@ class FailoverEngine(Engine):
             client: TechnitiumClient for the standby server.
         """
         self._standby_client = client
+
+    def set_primary_client(self, client: TechnitiumClient) -> None:
+        """Set the primary Technitium client for vote verification.
+
+        Args:
+            client: TechnitiumClient for the primary server.
+        """
+        self._primary_client = client
 
     def set_scope_names(self, names: list[str]) -> None:
         """Set the list of scope names to manage on failover.
@@ -244,6 +266,69 @@ class FailoverEngine(Engine):
         cutoff = time.time() - self._vote_ttl
         return [v for v in self._votes.values() if v.received_at >= cutoff]
 
+    async def _verify_primary_health(self) -> bool | None:
+        """Query the primary Technitium for DHCP health.
+
+        Returns:
+            True if primary is healthy (has enabled scopes),
+            False if reachable but unhealthy,
+            None if unreachable (timeout/connection error).
+        """
+        if not self._primary_client:
+            logger.warning("No primary client configured — skipping verification")
+            return None
+        try:
+            scopes = await asyncio.wait_for(
+                self._primary_client.list_scopes(),
+                timeout=10.0,
+            )
+            enabled = [s for s in scopes if s.get("enabled", False)]
+            if not enabled:
+                logger.info("Primary reachable but no enabled scopes")
+                return False
+            return True
+        except TimeoutError:
+            logger.info("Primary health check timed out")
+            return None
+        except Exception:
+            logger.info("Primary health check failed", exc_info=True)
+            return None
+
+    def _verify_votes(
+        self, votes: list[Vote], primary_healthy: bool | None
+    ) -> list[Vote]:
+        """Cross-validate votes against server-side primary health.
+
+        Args:
+            votes: Active votes to verify.
+            primary_healthy: True/False/None from _verify_primary_health.
+
+        Returns:
+            List of votes that should count (VERIFIED + UNVERIFIED).
+        """
+        counted: list[Vote] = []
+        for vote in votes:
+            if primary_healthy is None:
+                # Can't reach primary — trust voter, leave UNVERIFIED
+                vote.verification = VoteVerification.UNVERIFIED
+                counted.append(vote)
+            elif primary_healthy and vote.status == VoteStatus.DOWN:
+                vote.verification = VoteVerification.CONFLICT
+                logger.warning(
+                    "CONFLICT: voter %s says down but primary is healthy",
+                    vote.voter,
+                )
+            elif not primary_healthy and vote.status == VoteStatus.UP:
+                vote.verification = VoteVerification.CONFLICT
+                logger.warning(
+                    "CONFLICT: voter %s says up but primary is unhealthy",
+                    vote.voter,
+                )
+            else:
+                vote.verification = VoteVerification.VERIFIED
+                counted.append(vote)
+        return counted
+
     async def _activate_standby_scopes(self) -> None:
         """Enable all DHCP scopes on the standby server."""
         if not self._standby_client:
@@ -271,16 +356,24 @@ class FailoverEngine(Engine):
     async def evaluate_quorum(self) -> dict[str, Any]:
         """Evaluate current votes and potentially transition state.
 
-        When a transition occurs, scopes on the standby server are
-        enabled (failover) or disabled (failback) automatically.
+        Runs server-side verification against the primary before counting.
+        CONFLICT votes are excluded from quorum. When a transition occurs,
+        scopes on the standby server are enabled (failover) or disabled
+        (failback) automatically.
 
         Returns:
             Dict with evaluation results including quorum status.
         """
         active = self._active_votes()
-        up_count = sum(1 for v in active if v.status == VoteStatus.UP)
-        down_count = sum(1 for v in active if v.status == VoteStatus.DOWN)
-        has_quorum = len(active) >= self._quorum
+
+        # Server-side cross-validation
+        primary_healthy = await self._verify_primary_health()
+        counted = self._verify_votes(active, primary_healthy)
+
+        up_count = sum(1 for v in counted if v.status == VoteStatus.UP)
+        down_count = sum(1 for v in counted if v.status == VoteStatus.DOWN)
+        conflict_count = len(active) - len(counted)
+        has_quorum = len(counted) >= self._quorum
 
         self._last_evaluation = time.time()
 
@@ -333,9 +426,10 @@ class FailoverEngine(Engine):
         return {
             "state": self._state.value,
             "has_quorum": has_quorum,
-            "active_votes": len(active),
+            "active_votes": len(counted),
             "up_count": up_count,
             "down_count": down_count,
+            "conflict_count": conflict_count,
             "consecutive_down": self._consecutive_down,
             "consecutive_up": self._consecutive_up,
             "transitioned": old_state != self._state,

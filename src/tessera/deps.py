@@ -63,6 +63,7 @@ def get_engine_registry() -> EngineRegistry:
         voter_keys=voter_keys,
     )
     failover.set_standby_client(standby_client)
+    failover.set_primary_client(primary_client)
     registry.register(failover)
 
     scope_sync = ScopeSyncEngine(sync_interval=settings.sync_interval)

@@ -98,6 +98,7 @@ class VoterInfo(BaseModel):
     status: str
     timestamp: float
     received_at: float
+    verification: str = "unverified"
 
 
 class TransitionInfo(BaseModel):

@@ -81,6 +81,7 @@ async def failover_status(
                 status=v.status.value,
                 timestamp=v.timestamp,
                 received_at=v.received_at,
+                verification=v.verification.value,
             )
             for name, v in votes.items()
         },

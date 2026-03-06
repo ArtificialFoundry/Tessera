@@ -52,7 +52,7 @@ def voter_keys() -> dict[str, str]:
 
 @pytest.fixture
 def failover_engine(voter_keys: dict[str, str]) -> FailoverEngine:
-    """Fresh failover engine for each test."""
+    """Fresh failover engine for each test (no primary client = no verification)."""
     return FailoverEngine(
         quorum=2,
         failover_rounds=2,
@@ -71,7 +71,7 @@ def mock_technitium() -> AsyncMock:
     mock.version = "1.0.0"
     mock.description = "Mock Technitium"
     mock.depends_on = ()
-    mock.list_scopes = AsyncMock(return_value=[])
+    mock.list_scopes = AsyncMock(return_value=[{"name": "default", "enabled": True}])
     mock.get_scope = AsyncMock(return_value={})
     mock.get_leases = AsyncMock(return_value=[])
     mock.set_scope = AsyncMock()
