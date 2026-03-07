@@ -98,6 +98,8 @@ function ScopeDetailModal() {
   const [leasesPag, setLeasesPag] = useState<PaginationMeta>({ total: 0, offset: 0, limit: 50 });
   const [saving, setSaving] = useState(false);
   const [newRes, setNewRes] = useState({ mac: "", ip: "", host: "", comments: "" });
+  const [editingMac, setEditingMac] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ ip: "", host: "", comments: "" });
 
   const name = selectedScope.value;
 
@@ -147,6 +149,23 @@ function ScopeDetailModal() {
       await api.addReservation(name, { hardware_address: newRes.mac, address: newRes.ip, host_name: newRes.host, comments: newRes.comments });
       toast(`Reservation added: ${newRes.ip}`, "success");
       setNewRes({ mac: "", ip: "", host: "", comments: "" });
+      await refresh();
+    } catch (e) { toast((e as Error).message, "error"); }
+  }
+
+  function startEdit(r: Record<string, unknown>) {
+    setEditingMac(String(r.hardwareAddress));
+    setEditForm({ ip: String(r.address || ""), host: String(r.hostName || ""), comments: String(r.comments || "") });
+  }
+
+  function cancelEdit() { setEditingMac(null); }
+
+  async function saveEdit() {
+    if (!editingMac) return;
+    try {
+      await api.updateReservation(name, editingMac, { address: editForm.ip, host_name: editForm.host, comments: editForm.comments });
+      toast("Reservation updated", "success");
+      setEditingMac(null);
       await refresh();
     } catch (e) { toast((e as Error).message, "error"); }
   }
@@ -211,15 +230,33 @@ function ScopeDetailModal() {
             <table>
               <thead><tr><th>Host</th><th>IP</th><th>MAC</th><th>Notes</th><th></th></tr></thead>
               <tbody>
-                {reservations.map((r) => (
-                  <tr key={String(r.hardwareAddress)}>
-                    <td>{String(r.hostName || "—")}</td>
-                    <td class="mono">{String(r.address)}</td>
-                    <td class="mono">{String(r.hardwareAddress)}</td>
-                    <td>{String(r.comments || "—")}</td>
-                    <td><button class="btn btn-danger btn-sm" onClick={() => confirmDeleteRes(r)}>✕</button></td>
-                  </tr>
-                ))}
+                {reservations.map((r) => {
+                  const mac = String(r.hardwareAddress);
+                  if (editingMac === mac) return (
+                    <tr key={mac}>
+                      <td><input class="inline-edit" value={editForm.host} onInput={(e) => setEditForm({ ...editForm, host: (e.target as HTMLInputElement).value })} /></td>
+                      <td><input class="inline-edit mono" value={editForm.ip} onInput={(e) => setEditForm({ ...editForm, ip: (e.target as HTMLInputElement).value })} /></td>
+                      <td class="mono">{mac}</td>
+                      <td><input class="inline-edit" value={editForm.comments} onInput={(e) => setEditForm({ ...editForm, comments: (e.target as HTMLInputElement).value })} onKeyDown={(e) => e.key === "Enter" && saveEdit()} /></td>
+                      <td style="white-space:nowrap">
+                        <button class="btn btn-sm btn-success" onClick={saveEdit} title="Save">✓</button>
+                        <button class="btn btn-sm btn-ghost" onClick={cancelEdit} title="Cancel">✕</button>
+                      </td>
+                    </tr>
+                  );
+                  return (
+                    <tr key={mac}>
+                      <td>{String(r.hostName || "—")}</td>
+                      <td class="mono">{String(r.address)}</td>
+                      <td class="mono">{mac}</td>
+                      <td>{String(r.comments || "—")}</td>
+                      <td style="white-space:nowrap">
+                        <button class="btn btn-sm btn-ghost" onClick={() => startEdit(r)} title="Edit">✎</button>
+                        <button class="btn btn-danger btn-sm" onClick={() => confirmDeleteRes(r)}>✕</button>
+                      </td>
+                    </tr>
+                  );
+                })}
                 {reservations.length === 0 && <tr><td colSpan={5} style="text-align:center;color:var(--text-dim)">No reservations</td></tr>}
               </tbody>
             </table>

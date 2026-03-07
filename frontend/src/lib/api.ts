@@ -177,6 +177,8 @@ export const api = {
   disableScope: (name: string) => request<{ message: string }>(`/scopes/${enc(name)}/disable`, { method: "POST" }),
   addReservation: (scope: string, body: Record<string, unknown>) =>
     request<{ message: string }>(`/scopes/${enc(scope)}/reservations`, post(body)),
+  updateReservation: (scope: string, mac: string, body: Record<string, unknown>) =>
+    request<{ message: string }>(`/scopes/${enc(scope)}/reservations/${enc(mac)}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteReservation: (scope: string, mac: string) =>
     request<{ message: string }>(`/scopes/${enc(scope)}/reservations/${enc(mac)}`, { method: "DELETE" }),
   listLeases: (scope: string, offset = 0, limit = 50) =>

@@ -228,6 +228,7 @@ td.mono { font-family: var(--mono); font-size: 12px; }
 .btn-success { background: var(--green); border-color: var(--green); color: white; }
 .btn-warning { background: var(--yellow); border-color: var(--yellow); color: #1a1a2e; }
 .btn-sm { padding: 4px 10px; font-size: 12px; }
+.inline-edit { background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; font-size: 13px; color: var(--text); width: 100%; }
 .btn-ghost { background: transparent; border-color: transparent; color: var(--text-dim); }
 .btn-ghost:hover { color: var(--text); background: var(--surface); }
 .btn-icon { width: 30px; height: 30px; padding: 0; display: flex; align-items: center; justify-content: center; font-size: 13px; }
