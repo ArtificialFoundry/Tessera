@@ -3,7 +3,7 @@
 import { render } from "preact";
 import { signal } from "@preact/signals";
 import { useEffect, useState } from "preact/hooks";
-import { api, type ScopeListItem, type PaginationMeta } from "@/lib/api";
+import { api, isAuthCancelled, type ScopeListItem, type PaginationMeta } from "@/lib/api";
 import { toast } from "@/lib/utils";
 import { Shell, Modal, openModal, closeModal, showConfirm, Paginator } from "@/components/Shell";
 import "@/styles/tessera.css";
@@ -55,7 +55,7 @@ function ScopeCard({ scope: s }: { scope: ScopeListItem }) {
       else await api.enableScope(s.name);
       toast(`Scope ${s.enabled ? "disabled" : "enabled"}`, "success");
       await loadScopes();
-    } catch (e) { toast((e as Error).message, "error"); }
+    } catch (e) { if (!isAuthCancelled(e)) toast((e as Error).message, "error"); }
   }
 
   function confirmDelete() {
@@ -65,7 +65,7 @@ function ScopeCard({ scope: s }: { scope: ScopeListItem }) {
         toast("Scope deleted", "success");
         closeModal();
         await loadScopes();
-      } catch (e) { toast((e as Error).message, "error"); }
+      } catch (e) { if (!isAuthCancelled(e)) toast((e as Error).message, "error"); }
     });
   }
 
@@ -139,7 +139,7 @@ function ScopeDetailModal() {
       await api.updateScope(name, formData);
       toast("Scope settings saved", "success");
       await refresh();
-    } catch (e) { toast((e as Error).message, "error"); }
+    } catch (e) { if (!isAuthCancelled(e)) toast((e as Error).message, "error"); }
     setSaving(false);
   }
 
@@ -150,7 +150,7 @@ function ScopeDetailModal() {
       toast(`Reservation added: ${newRes.ip}`, "success");
       setNewRes({ mac: "", ip: "", host: "", comments: "" });
       await refresh();
-    } catch (e) { toast((e as Error).message, "error"); }
+    } catch (e) { if (!isAuthCancelled(e)) toast((e as Error).message, "error"); }
   }
 
   function startEdit(r: Record<string, unknown>) {
@@ -167,7 +167,7 @@ function ScopeDetailModal() {
       toast("Reservation updated", "success");
       setEditingMac(null);
       await refresh();
-    } catch (e) { toast((e as Error).message, "error"); }
+    } catch (e) { if (!isAuthCancelled(e)) toast((e as Error).message, "error"); }
   }
 
   function confirmDeleteRes(r: Record<string, unknown>) {
@@ -177,7 +177,7 @@ function ScopeDetailModal() {
         toast("Removed", "success");
         closeModal();
         setTimeout(() => { openModal("scope"); refresh(); }, 100);
-      } catch (e) { toast((e as Error).message, "error"); }
+      } catch (e) { if (!isAuthCancelled(e)) toast((e as Error).message, "error"); }
     });
   }
 
@@ -188,7 +188,7 @@ function ScopeDetailModal() {
         toast("Lease removed", "success");
         closeModal();
         setTimeout(() => { openModal("scope"); refresh(); }, 100);
-      } catch (e) { toast((e as Error).message, "error"); }
+      } catch (e) { if (!isAuthCancelled(e)) toast((e as Error).message, "error"); }
     });
   }
 
@@ -197,7 +197,7 @@ function ScopeDetailModal() {
       await api.convertLease(name, String(l.address));
       toast(`Converted ${l.address}`, "success");
       await refresh();
-    } catch (e) { toast((e as Error).message, "error"); }
+    } catch (e) { if (!isAuthCancelled(e)) toast((e as Error).message, "error"); }
   }
 
   return (
@@ -409,7 +409,7 @@ function CreateScopeModal() {
       toast(`Scope '${form.name}' created`, "success");
       closeModal();
       await loadScopes();
-    } catch (e) { toast((e as Error).message, "error"); }
+    } catch (e) { if (!isAuthCancelled(e)) toast((e as Error).message, "error"); }
   }
 
   return (

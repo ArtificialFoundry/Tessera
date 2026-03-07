@@ -5,6 +5,7 @@ import { signal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import {
   api,
+  isAuthCancelled,
   type VoterInfoDetail,
   type VoterListResponse,
   type FailoverStatus,
@@ -92,7 +93,7 @@ async function approveVoter(name: string) {
     if (r.psk) newPsk.value = { name: r.voter_name, psk: r.psk };
     await refresh();
   } catch (e: unknown) {
-    toast(String((e as Error).message), "error");
+    if (!isAuthCancelled(e)) toast(String((e as Error).message), "error");
   } finally {
     busy.value = null;
   }
@@ -105,7 +106,7 @@ async function revokeVoter(name: string) {
     toast(`${r.voter_name} revoked`, "success");
     await refresh();
   } catch (e: unknown) {
-    toast(String((e as Error).message), "error");
+    if (!isAuthCancelled(e)) toast(String((e as Error).message), "error");
   } finally {
     busy.value = null;
   }
@@ -118,7 +119,7 @@ async function deleteVoter(name: string) {
     toast(`${name} deleted`, "success");
     await refresh();
   } catch (e: unknown) {
-    toast(String((e as Error).message), "error");
+    if (!isAuthCancelled(e)) toast(String((e as Error).message), "error");
   } finally {
     busy.value = null;
   }
@@ -131,7 +132,7 @@ async function rotateKey(name: string) {
     newPsk.value = { name: r.voter_name, psk: r.new_psk };
     toast(r.message, "success");
   } catch (e: unknown) {
-    toast(String((e as Error).message), "error");
+    if (!isAuthCancelled(e)) toast(String((e as Error).message), "error");
   } finally {
     busy.value = null;
   }
@@ -150,7 +151,7 @@ async function generateToken() {
     tokenTtl.value = "";
     await refresh();
   } catch (e: unknown) {
-    toast(String((e as Error).message), "error");
+    if (!isAuthCancelled(e)) toast(String((e as Error).message), "error");
   } finally {
     busy.value = null;
   }

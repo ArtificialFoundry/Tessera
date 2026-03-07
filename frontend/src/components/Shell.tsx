@@ -2,8 +2,9 @@
 
 import { type ComponentChildren } from "preact";
 import { signal } from "@preact/signals";
-import { useEffect } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 import { pingOk, toasts } from "@/lib/utils";
+import { adminToken, clearAdminToken, setAdminToken, authPromptOpen, resolveAuth, cancelAuth, api, ApiError } from "@/lib/api";
 
 // -- Modal state (global singleton) ------------------------------------------
 
@@ -88,6 +89,7 @@ export function Shell({ activeTab, children }: ShellProps) {
         <Nav activeTab={activeTab} />
         {children}
         <ConfirmDialog />
+        <AuthDialog />
         <ToastContainer />
       </div>
     </>
@@ -128,6 +130,16 @@ function Nav({ activeTab }: { activeTab: string }) {
           </a>
         ))}
       </div>
+      {adminToken.value && (
+        <button
+          class="btn btn-sm btn-ghost"
+          style="margin-left:8px;font-size:11px;color:var(--text-dim)"
+          onClick={() => { clearAdminToken(); }}
+          title="Clear admin token"
+        >
+          🔓 Logout
+        </button>
+      )}
     </nav>
   );
 }
@@ -140,6 +152,69 @@ function ToastContainer() {
           {t.message}
         </div>
       ))}
+    </div>
+  );
+}
+
+function AuthDialog() {
+  const open = authPromptOpen.value;
+  const [tokenInput, setTokenInput] = useState("");
+  const [error, setError] = useState("");
+  const [verifying, setVerifying] = useState(false);
+
+  // Reset state when dialog opens
+  useEffect(() => {
+    if (open) { setTokenInput(""); setError(""); setVerifying(false); }
+  }, [open]);
+
+  async function handleSubmit() {
+    const trimmed = tokenInput.trim();
+    if (!trimmed) { setError("Token is required"); return; }
+    setVerifying(true);
+    setError("");
+    // Temporarily set the token so the verify request includes it
+    setAdminToken(trimmed);
+    try {
+      await api.verifyToken();
+      resolveAuth();
+    } catch (e) {
+      clearAdminToken();
+      if (e instanceof ApiError) {
+        setError(e.status === 401 ? "Invalid token" : e.message);
+      } else {
+        setError("Verification failed");
+      }
+    } finally {
+      setVerifying(false);
+    }
+  }
+
+  return (
+    <div class={`modal-overlay${open ? " open" : ""}`} onClick={(e) => { if (e.target === e.currentTarget) cancelAuth(); }}>
+      <div class="modal" style="width:420px">
+        <button class="modal-close" onClick={cancelAuth}>✕</button>
+        <h2>🔐 Admin Authentication</h2>
+        <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px">
+          Enter the admin API key to perform this action.
+        </p>
+        <input
+          class="input"
+          type="password"
+          placeholder="Admin API key"
+          value={tokenInput}
+          onInput={(e) => { setTokenInput((e.target as HTMLInputElement).value); setError(""); }}
+          onKeyDown={(e) => { if (e.key === "Enter" && !verifying) handleSubmit(); }}
+          style="width:100%;margin-bottom:8px"
+          autofocus
+        />
+        {error && <div style="font-size:12px;color:var(--red);margin-bottom:8px">{error}</div>}
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+          <button class="btn btn-ghost" onClick={cancelAuth}>Cancel</button>
+          <button class="btn btn-accent" disabled={verifying || !tokenInput.trim()} onClick={handleSubmit}>
+            {verifying ? "Verifying…" : "Authenticate"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

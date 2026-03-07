@@ -3,7 +3,7 @@
 import { render } from "preact";
 import { signal } from "@preact/signals";
 import { useEffect, useState } from "preact/hooks";
-import { api, type BackupManifest, type BackupSettings, type EnforcementStatus, type DriftCheckResponse, type DriftEvent, type DriftChange, type PaginationMeta } from "@/lib/api";
+import { api, isAuthCancelled, type BackupManifest, type BackupSettings, type EnforcementStatus, type DriftCheckResponse, type DriftEvent, type DriftChange, type PaginationMeta } from "@/lib/api";
 import { toast, formatTime } from "@/lib/utils";
 import { Shell, Modal, openModal, closeModal, showConfirm, Paginator } from "@/components/Shell";
 import "@/styles/tessera.css";
@@ -103,7 +103,7 @@ function EnforcementControls() {
       const d = await api.restoreBackup(enf.pinned_backup_id, false);
       toast(`Restored: ${d.total_changes} change(s) applied`, "success");
       setDriftResult(null); await loadEnforcement();
-    } catch (e) { toast((e as Error).message, "error"); }
+    } catch (e) { if (!isAuthCancelled(e)) toast((e as Error).message, "error"); }
   }
 
   async function acceptDrift() {
@@ -111,7 +111,7 @@ function EnforcementControls() {
       const d = await api.acceptDrift();
       toast(d.message, "success");
       setDriftResult(null); await loadEnforcement(); await loadBackups();
-    } catch (e) { toast((e as Error).message, "error"); }
+    } catch (e) { if (!isAuthCancelled(e)) toast((e as Error).message, "error"); }
   }
 
   return (
@@ -233,21 +233,21 @@ function SettingsSection() {
       backupSettings.value = await api.updateBackupSettings({ auto_enabled: !bs.auto_enabled });
       toast(`Auto-backup ${!bs.auto_enabled ? "enabled" : "disabled"}`, "success");
       await loadBackupSettings();
-    } catch (e) { toast((e as Error).message, "error"); }
+    } catch (e) { if (!isAuthCancelled(e)) toast((e as Error).message, "error"); }
   }
 
   async function saveBackup() {
     try {
       backupSettings.value = await api.updateBackupSettings(bForm);
       toast("Backup settings saved", "success"); await loadBackupSettings();
-    } catch (e) { toast((e as Error).message, "error"); }
+    } catch (e) { if (!isAuthCancelled(e)) toast((e as Error).message, "error"); }
   }
 
   async function saveEnforcement() {
     try {
       await api.updateEnforcementSettings(eForm);
       toast("Enforcement settings saved", "success"); await loadEnforcement();
-    } catch (e) { toast((e as Error).message, "error"); }
+    } catch (e) { if (!isAuthCancelled(e)) toast((e as Error).message, "error"); }
   }
 
   return (
@@ -446,7 +446,7 @@ function BackupsTable() {
       const d = await api.createBackup();
       toast(`Backup created: ${d.backup_id}`, "success");
       await loadBackups(); await loadBackupSettings();
-    } catch (e) { toast((e as Error).message, "error"); }
+    } catch (e) { if (!isAuthCancelled(e)) toast((e as Error).message, "error"); }
     setCreating(false);
   }
 
@@ -462,7 +462,7 @@ function BackupsTable() {
         if (isPinned) await api.unpinBackup();
         await api.deleteBackup(b.backup_id);
         toast("Backup deleted", "success"); closeModal(); await loadBackups(); await loadEnforcement();
-      } catch (e) { toast((e as Error).message, "error"); }
+      } catch (e) { if (!isAuthCancelled(e)) toast((e as Error).message, "error"); }
     });
   }
 
@@ -534,7 +534,7 @@ function RestoreModal() {
       const d = await api.restoreBackup(b.backup_id, false);
       toast(`Restored: ${d.total_changes} change(s) applied`, "success");
       closeModal();
-    } catch (e) { toast((e as Error).message, "error"); }
+    } catch (e) { if (!isAuthCancelled(e)) toast((e as Error).message, "error"); }
     setRestoring(false);
   }
 

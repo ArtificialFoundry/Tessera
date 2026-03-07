@@ -3,7 +3,7 @@
 import { render } from "preact";
 import { signal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
-import { api, type ServersResponse, type ServerInfo } from "@/lib/api";
+import { api, isAuthCancelled, type ServersResponse, type ServerInfo } from "@/lib/api";
 import { toast, poll } from "@/lib/utils";
 import { Shell, showConfirm } from "@/components/Shell";
 import "@/styles/tessera.css";
@@ -32,7 +32,7 @@ async function promote(name: string) {
     toast(r.message, "success");
     data.value = await api.listServers();
   } catch (e: unknown) {
-    toast(String((e as Error).message), "error");
+    if (!isAuthCancelled(e)) toast(String((e as Error).message), "error");
   } finally {
     busy.value = null;
   }
@@ -45,7 +45,7 @@ async function demote(name: string) {
     toast(r.message, "success");
     data.value = await api.listServers();
   } catch (e: unknown) {
-    toast(String((e as Error).message), "error");
+    if (!isAuthCancelled(e)) toast(String((e as Error).message), "error");
   } finally {
     busy.value = null;
   }

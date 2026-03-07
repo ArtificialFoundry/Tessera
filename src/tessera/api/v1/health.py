@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from tessera.api.schemas import EngineHealthResponse, HealthResponse, PingResponse
-from tessera.deps import get_engine_registry
+from tessera.deps import get_engine_registry, require_admin
 from tessera.registry import EngineRegistry, EngineStatus
 
 router = APIRouter()
@@ -31,3 +31,12 @@ async def health(
 async def ping() -> PingResponse:
     """Liveness probe — always returns OK."""
     return PingResponse(status="ok")
+
+
+@router.post(
+    "/auth/verify",
+    dependencies=[Depends(require_admin)],
+)
+async def verify_auth() -> dict[str, str]:
+    """Verify the admin API key is valid. Returns 200 on success."""
+    return {"status": "ok"}
