@@ -62,8 +62,8 @@ class Vote:
     timestamp: float
     received_at: float = field(default_factory=time.time)
     verification: VoteVerification = VoteVerification.UNVERIFIED
-    http_status: str = ""   # "up" or "down"
-    dhcp_status: str = ""   # "up" or "down"
+    http_status: str = ""  # "up" or "down"
+    dhcp_status: str = ""  # "up" or "down"
 
 
 @dataclass(slots=True)
@@ -275,7 +275,8 @@ class FailoverEngine(Engine):
             The accepted Vote.
 
         Raises:
-            AuthenticationError: On unknown voter, stale timestamp, bad sig, or IP mismatch.
+            AuthenticationError: On unknown voter, stale timestamp,
+                bad signature, or IP mismatch.
         """
         if voter not in self._voter_keys:
             raise AuthenticationError(f"Unknown voter: {voter}")

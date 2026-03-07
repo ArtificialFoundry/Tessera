@@ -123,16 +123,18 @@ class TestSyncFanOutFailure:
         active.list_scopes = AsyncMock(
             return_value=[{"name": "LAN"}],
         )
-        active.get_scope = AsyncMock(return_value={
-            "reservedLeases": [
-                {
-                    "hardwareAddress": "AA:BB:CC:DD:EE:01",
-                    "address": "10.0.0.10",
-                    "hostName": "srv1",
-                    "comments": "",
-                },
-            ],
-        })
+        active.get_scope = AsyncMock(
+            return_value={
+                "reservedLeases": [
+                    {
+                        "hardwareAddress": "AA:BB:CC:DD:EE:01",
+                        "address": "10.0.0.10",
+                        "hostName": "srv1",
+                        "comments": "",
+                    },
+                ],
+            }
+        )
 
         good = AsyncMock()
         good.server_name = "good"

@@ -71,9 +71,7 @@ async def create_scope(
     if body.lease_time_hours is not None:
         settings["leaseTimeHours"] = str(body.lease_time_hours)
     if body.lease_time_minutes is not None:
-        settings["leaseTimeMinutes"] = str(
-            body.lease_time_minutes
-        )
+        settings["leaseTimeMinutes"] = str(body.lease_time_minutes)
     await client.set_scope(body.name, settings)
 
     return MessageResponse(message=f"Scope '{body.name}' created")
@@ -160,7 +158,8 @@ async def disable_scope(
 
 
 @router.post(
-    "/{name}/reservations", response_model=MessageResponse,
+    "/{name}/reservations",
+    response_model=MessageResponse,
     dependencies=[Depends(require_admin)],
 )
 async def add_reservation(
@@ -178,10 +177,7 @@ async def add_reservation(
     )
 
     return MessageResponse(
-        message=(
-            f"Reservation added: "
-            f"{body.hardware_address} → {body.address}"
-        )
+        message=(f"Reservation added: {body.hardware_address} → {body.address}")
     )
 
 
@@ -205,9 +201,7 @@ async def update_reservation(
         comments=body.comments,
     )
 
-    return MessageResponse(
-        message=f"Reservation updated: {mac} → {body.address}"
-    )
+    return MessageResponse(message=f"Reservation updated: {mac} → {body.address}")
 
 
 @router.delete(

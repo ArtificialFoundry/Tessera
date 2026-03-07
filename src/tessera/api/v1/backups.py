@@ -128,9 +128,7 @@ async def get_backup(
 
     return BackupDetailResponse(
         manifest=BackupManifestResponse(**asdict(backup.manifest)),
-        scopes=[
-            ScopeSnapshotResponse(**asdict(s)) for s in backup.scopes
-        ],
+        scopes=[ScopeSnapshotResponse(**asdict(s)) for s in backup.scopes],
     )
 
 

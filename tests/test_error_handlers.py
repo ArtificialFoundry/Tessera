@@ -15,7 +15,8 @@ class TestStructuredErrorResponses:
 
     @pytest.mark.asyncio
     async def test_not_found_returns_error_code(
-        self, client: AsyncClient,
+        self,
+        client: AsyncClient,
     ) -> None:
         resp = await client.get("/api/v1/backups/nonexistent")
         assert resp.status_code == 404
@@ -24,7 +25,8 @@ class TestStructuredErrorResponses:
 
     @pytest.mark.asyncio
     async def test_auth_failure_returns_error_code(
-        self, client: AsyncClient,
+        self,
+        client: AsyncClient,
     ) -> None:
         resp = await client.post(
             "/api/v1/vote",

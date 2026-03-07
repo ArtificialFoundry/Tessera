@@ -107,8 +107,12 @@ def voter_keys() -> dict[str, str]:
 @pytest.fixture
 def failover_engine(voter_keys: dict[str, str]) -> FailoverEngine:
     return FailoverEngine(
-        quorum=2, failover_rounds=2, failback_rounds=2,
-        vote_ttl=90, voter_keys=voter_keys, vote_cooldown=0,
+        quorum=2,
+        failover_rounds=2,
+        failback_rounds=2,
+        vote_ttl=90,
+        voter_keys=voter_keys,
+        vote_cooldown=0,
     )
 
 
@@ -172,7 +176,9 @@ def voter_registry(tmp_path: Path) -> VoterRegistryEngine:
         voter_registry_file=tmp_path / "voter-registry.json",
         reg_tokens_file=tmp_path / "reg-tokens.json",
         static_registration_token="static-test-token",
-        auto_approve=False, token_ttl=3600, psk_grace_period=60,
+        auto_approve=False,
+        token_ttl=3600,
+        psk_grace_period=60,
     )
 
 
@@ -199,8 +205,14 @@ async def admin_client(
 ) -> AsyncGenerator[AsyncClient]:
     """Client with admin_api_key configured."""
     app = _build_app_with_settings(
-        ADMIN_KEY, engine_registry, module_registry, failover_engine,
-        mock_technitium, mock_pool, backup_engine, enforcement_engine,
+        ADMIN_KEY,
+        engine_registry,
+        module_registry,
+        failover_engine,
+        mock_technitium,
+        mock_pool,
+        backup_engine,
+        enforcement_engine,
         voter_registry,
     )
     transport = ASGITransport(app=app)
@@ -222,8 +234,14 @@ async def nokey_client(
 ) -> AsyncGenerator[AsyncClient]:
     """Client with no admin_api_key configured."""
     app = _build_app_with_settings(
-        "", engine_registry, module_registry, failover_engine,
-        mock_technitium, mock_pool, backup_engine, enforcement_engine,
+        "",
+        engine_registry,
+        module_registry,
+        failover_engine,
+        mock_technitium,
+        mock_pool,
+        backup_engine,
+        enforcement_engine,
         voter_registry,
     )
     transport = ASGITransport(app=app)
@@ -233,14 +251,19 @@ async def nokey_client(
 
 
 async def _request(
-    client: AsyncClient, method: str, url: str, **kwargs: object,
+    client: AsyncClient,
+    method: str,
+    url: str,
+    **kwargs: object,
 ) -> object:
     return await client.request(method, url, **kwargs)
 
 
 @pytest.mark.parametrize(("method", "url"), ADMIN_ENDPOINTS)
 async def test_admin_endpoint_returns_503_when_key_not_configured(
-    nokey_client: AsyncClient, method: str, url: str,
+    nokey_client: AsyncClient,
+    method: str,
+    url: str,
 ) -> None:
     resp = await nokey_client.request(method, url)
     assert resp.status_code == 503
@@ -249,7 +272,9 @@ async def test_admin_endpoint_returns_503_when_key_not_configured(
 
 @pytest.mark.parametrize(("method", "url"), ADMIN_ENDPOINTS)
 async def test_admin_endpoint_rejects_missing_token(
-    admin_client: AsyncClient, method: str, url: str,
+    admin_client: AsyncClient,
+    method: str,
+    url: str,
 ) -> None:
     resp = await admin_client.request(method, url)
     assert resp.status_code == 401
@@ -258,10 +283,14 @@ async def test_admin_endpoint_rejects_missing_token(
 
 @pytest.mark.parametrize(("method", "url"), ADMIN_ENDPOINTS)
 async def test_admin_endpoint_rejects_invalid_token(
-    admin_client: AsyncClient, method: str, url: str,
+    admin_client: AsyncClient,
+    method: str,
+    url: str,
 ) -> None:
     resp = await admin_client.request(
-        method, url, headers={"Authorization": "Bearer wrong-key"},
+        method,
+        url,
+        headers={"Authorization": "Bearer wrong-key"},
     )
     assert resp.status_code == 401
     assert "Invalid API key" in resp.json()["error"]["message"]
@@ -269,10 +298,14 @@ async def test_admin_endpoint_rejects_invalid_token(
 
 @pytest.mark.parametrize(("method", "url"), ADMIN_ENDPOINTS[:3])
 async def test_admin_endpoint_accepts_valid_token(
-    admin_client: AsyncClient, method: str, url: str,
+    admin_client: AsyncClient,
+    method: str,
+    url: str,
 ) -> None:
     resp = await admin_client.request(
-        method, url, headers={"Authorization": f"Bearer {ADMIN_KEY}"},
+        method,
+        url,
+        headers={"Authorization": f"Bearer {ADMIN_KEY}"},
     )
     # Should not be 401 or 503 — may be 4xx/5xx for other reasons
     assert resp.status_code not in (401, 503)
@@ -280,7 +313,9 @@ async def test_admin_endpoint_accepts_valid_token(
 
 @pytest.mark.parametrize(("method", "url"), PUBLIC_ENDPOINTS)
 async def test_public_endpoint_accessible_without_token(
-    admin_client: AsyncClient, method: str, url: str,
+    admin_client: AsyncClient,
+    method: str,
+    url: str,
 ) -> None:
     resp = await admin_client.request(method, url)
     assert resp.status_code not in (401, 503)

@@ -250,11 +250,8 @@ class ScopeSyncEngine(Engine):
         if any_failed:
             self._last_error = "Partial sync failure"
             self.health.status = EngineStatus.DEGRADED
-            self.health.message = (
-                "Sync partial failure: "
-                + ", ".join(
-                    f"{k}={v}" for k, v in candidate_results.items() if v != "success"
-                )
+            self.health.message = "Sync partial failure: " + ", ".join(
+                f"{k}={v}" for k, v in candidate_results.items() if v != "success"
             )
         else:
             self._last_error = ""

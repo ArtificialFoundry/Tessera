@@ -178,8 +178,11 @@ class TechnitiumClient(Engine):
                     logger.warning(
                         "Technitium request %s %s failed "
                         "(attempt %d/%d): %s — retrying",
-                        method, path, attempt + 1,
-                        _max_attempts, exc,
+                        method,
+                        path,
+                        attempt + 1,
+                        _max_attempts,
+                        exc,
                     )
                     await asyncio.sleep(_backoff[attempt])
                     continue
@@ -189,11 +192,12 @@ class TechnitiumClient(Engine):
                     last_exc = exc
                     if attempt < _max_attempts - 1:
                         logger.warning(
-                            "Technitium %s %s returned %d "
-                            "(attempt %d/%d) — retrying",
-                            method, path,
+                            "Technitium %s %s returned %d (attempt %d/%d) — retrying",
+                            method,
+                            path,
                             exc.response.status_code,
-                            attempt + 1, _max_attempts,
+                            attempt + 1,
+                            _max_attempts,
                         )
                         await asyncio.sleep(_backoff[attempt])
                         continue
@@ -322,7 +326,11 @@ class TechnitiumPool:
 
     @classmethod
     def from_servers(
-        cls, servers: list[DhcpServer], token: str, *, ca_cert_file: str = "",
+        cls,
+        servers: list[DhcpServer],
+        token: str,
+        *,
+        ca_cert_file: str = "",
         servers_file: Path | None = None,
     ) -> TechnitiumPool:
         """Create a pool from a list of DhcpServer configs.
@@ -449,9 +457,7 @@ class TechnitiumPool:
             TechnitiumError: If the server is not found or is an observer.
         """
         if server_name not in self._clients:
-            raise TechnitiumError(
-                f"Server not found: {server_name}", status_code=0
-            )
+            raise TechnitiumError(f"Server not found: {server_name}", status_code=0)
         if self._roles[server_name] == "observer":
             raise TechnitiumError(
                 f"Cannot promote observer: {server_name}", status_code=0
@@ -476,16 +482,18 @@ class TechnitiumPool:
             TechnitiumError: If the server is not found.
         """
         if server_name not in self._clients:
-            raise TechnitiumError(
-                f"Server not found: {server_name}", status_code=0
-            )
+            raise TechnitiumError(f"Server not found: {server_name}", status_code=0)
         self._roles[server_name] = "candidate"
         logger.info("Demoted %s to candidate", server_name)
         self._persist_roles()
 
     async def add_server(
-        self, name: str, url: str, role: str = "candidate",
-        priority: int = 10, token: str = "",
+        self,
+        name: str,
+        url: str,
+        role: str = "candidate",
+        priority: int = 10,
+        token: str = "",
     ) -> None:
         """Add a new DHCP server to the pool at runtime.
 
@@ -503,7 +511,7 @@ class TechnitiumPool:
             base_url=url,
             token=token or self._token,
             server_name=name,
-            ca_cert_file=str(self._ca_cert_file) if self._ca_cert_file else None,
+            ca_cert_file=str(self._ca_cert_file) if self._ca_cert_file else "",
         )
         await client.start()
         await client.check_health()
@@ -545,14 +553,16 @@ class TechnitiumPool:
         await self.check_health_all()
         states: list[dict[str, Any]] = []
         for name, client in self._clients.items():
-            states.append({
-                "name": name,
-                "url": client._base_url,
-                "role": self._roles[name],
-                "priority": self._priorities[name],
-                "status": client.health.status.value,
-                "message": client.health.message,
-            })
+            states.append(
+                {
+                    "name": name,
+                    "url": client._base_url,
+                    "role": self._roles[name],
+                    "priority": self._priorities[name],
+                    "status": client.health.status.value,
+                    "message": client.health.message,
+                }
+            )
         return states
 
     async def check_health_all(self) -> dict[str, EngineHealth]:

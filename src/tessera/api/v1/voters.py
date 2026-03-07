@@ -44,6 +44,7 @@ async def generate_token(
         )
     except ValueError as exc:
         from tessera.exceptions import ValidationError
+
         raise ValidationError(str(exc)) from exc
     return RegistrationTokenResponse(
         token=token.token,

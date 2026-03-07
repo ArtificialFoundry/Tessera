@@ -20,9 +20,18 @@ class TestConfigWatcherDetectsFileChanges:
     @pytest.fixture
     def watcher(self, tmp_path: Path) -> ConfigWatcherEngine:
         servers_file = tmp_path / "servers.json"
-        servers_file.write_text(json.dumps([
-            {"name": "s1", "url": "https://s1:53443", "role": "active", "priority": 0},
-        ]))
+        servers_file.write_text(
+            json.dumps(
+                [
+                    {
+                        "name": "s1",
+                        "url": "https://s1:53443",
+                        "role": "active",
+                        "priority": 0,
+                    },
+                ]
+            )
+        )
         return ConfigWatcherEngine(check_interval=1, servers_file=servers_file)
 
     @pytest.mark.asyncio
@@ -35,12 +44,24 @@ class TestConfigWatcherDetectsFileChanges:
         watcher._mtimes[str(path)] = path.stat().st_mtime
 
         await asyncio.sleep(0.05)
-        path.write_text(json.dumps([
-            {"name": "s1", "url": "https://s1:53443",
-             "role": "active", "priority": 0},
-            {"name": "s2", "url": "https://s2:53443",
-             "role": "candidate", "priority": 1},
-        ]))
+        path.write_text(
+            json.dumps(
+                [
+                    {
+                        "name": "s1",
+                        "url": "https://s1:53443",
+                        "role": "active",
+                        "priority": 0,
+                    },
+                    {
+                        "name": "s2",
+                        "url": "https://s2:53443",
+                        "role": "candidate",
+                        "priority": 1,
+                    },
+                ]
+            )
+        )
 
         # mtime should change
         new_mtime = path.stat().st_mtime

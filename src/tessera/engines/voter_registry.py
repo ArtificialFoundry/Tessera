@@ -375,7 +375,11 @@ class VoterRegistryEngine(Engine):
             raise AuthenticationError("Registration token already used")
         if token.is_expired():
             raise AuthenticationError("Registration token expired")
-        if token.bind_ip and source_ip and not self.ip_matches_bind(source_ip, token.bind_ip):
+        if (
+            token.bind_ip
+            and source_ip
+            and not self.ip_matches_bind(source_ip, token.bind_ip)
+        ):
             raise AuthenticationError(
                 f"Token bound to {token.bind_ip}, request from {source_ip}"
             )
@@ -442,15 +446,11 @@ class VoterRegistryEngine(Engine):
             NotFoundError: If no token matches the prefix.
         """
         prefix = token_prefix.rstrip(".")
-        matches = [
-            k for k in self._tokens if k.startswith(prefix)
-        ]
+        matches = [k for k in self._tokens if k.startswith(prefix)]
         if not matches:
             raise NotFoundError("Token", token_prefix)
         if len(matches) > 1:
-            raise RegistrationError(
-                f"Ambiguous prefix, matches {len(matches)} tokens"
-            )
+            raise RegistrationError(f"Ambiguous prefix, matches {len(matches)} tokens")
         del self._tokens[matches[0]]
         self._save_tokens()
         logger.info("Registration token deleted: %s...", prefix[:8])
@@ -707,8 +707,7 @@ class VoterRegistryEngine(Engine):
             return
         if not self.ip_matches_bind(source_ip, record.bind_ip):
             raise AuthenticationError(
-                f"Voter {voter!r} bound to {record.bind_ip}, "
-                f"request from {source_ip}"
+                f"Voter {voter!r} bound to {record.bind_ip}, request from {source_ip}"
             )
 
     # ── File I/O ─────────────────────────────────────────────────────────
@@ -716,9 +715,7 @@ class VoterRegistryEngine(Engine):
     def _load_voter_keys(self) -> dict[str, str]:
         """Load voter keys from disk."""
         try:
-            result: dict[str, str] = json.loads(
-                self._voter_keys_file.read_text()
-            )
+            result: dict[str, str] = json.loads(self._voter_keys_file.read_text())
         except (FileNotFoundError, json.JSONDecodeError):
             return {}
         return result
@@ -744,9 +741,7 @@ class VoterRegistryEngine(Engine):
         """Load registration tokens from disk."""
         try:
             data = json.loads(self._reg_tokens_file.read_text())
-            self._tokens = {
-                k: RegistrationToken.from_dict(v) for k, v in data.items()
-            }
+            self._tokens = {k: RegistrationToken.from_dict(v) for k, v in data.items()}
         except (FileNotFoundError, json.JSONDecodeError):
             self._tokens = {}
 
@@ -760,9 +755,7 @@ class VoterRegistryEngine(Engine):
         """Load voter registry from disk."""
         try:
             data = json.loads(self._voter_registry_file.read_text())
-            self._voters = {
-                k: VoterRecord.from_dict(k, v) for k, v in data.items()
-            }
+            self._voters = {k: VoterRecord.from_dict(k, v) for k, v in data.items()}
         except (FileNotFoundError, json.JSONDecodeError):
             self._voters = {}
 
@@ -793,8 +786,6 @@ class VoterRegistryEngine(Engine):
             "revoked_voters": sum(
                 1 for v in self._voters.values() if v.status == "revoked"
             ),
-            "active_tokens": sum(
-                1 for t in self._tokens.values() if t.is_valid()
-            ),
+            "active_tokens": sum(1 for t in self._tokens.values() if t.is_valid()),
             "grace_period_keys": len(self._grace_keys),
         }

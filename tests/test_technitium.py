@@ -113,7 +113,8 @@ class TestDhcpClientProtocol:
     def test_client_implements_dhcp_protocol(self) -> None:
         """TechnitiumClient satisfies DhcpClientProtocol."""
         client = TechnitiumClient(
-            base_url="https://test", token="tok",
+            base_url="https://test",
+            token="tok",
         )
         assert isinstance(client, DhcpClientProtocol)
 
@@ -126,10 +127,14 @@ class TestPoolRolePersistence:
         sf = tmp_path / "servers.json"
         pool = TechnitiumPool(token="tok", servers_file=sf)
         c1 = TechnitiumClient(
-            base_url="https://s1", token="tok", server_name="s1",
+            base_url="https://s1",
+            token="tok",
+            server_name="s1",
         )
         c2 = TechnitiumClient(
-            base_url="https://s2", token="tok", server_name="s2",
+            base_url="https://s2",
+            token="tok",
+            server_name="s2",
         )
         pool._clients = {"s1": c1, "s2": c2}
         pool._roles = {"s1": "active", "s2": "candidate"}
@@ -146,7 +151,9 @@ class TestPoolRolePersistence:
         sf = tmp_path / "servers.json"
         pool = TechnitiumPool(token="tok", servers_file=sf)
         c1 = TechnitiumClient(
-            base_url="https://s1", token="tok", server_name="s1",
+            base_url="https://s1",
+            token="tok",
+            server_name="s1",
         )
         pool._clients = {"s1": c1}
         pool._roles = {"s1": "active"}
@@ -161,21 +168,20 @@ class TestTlsVerificationWarning:
 
     @pytest.mark.asyncio
     async def test_warns_when_tls_verification_disabled(
-        self, caplog: pytest.LogCaptureFixture,
+        self,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         TechnitiumClient._tls_warned_urls.clear()
         c = TechnitiumClient("https://tls-test:53443", "tok")
         with caplog.at_level(logging.WARNING):
             await c.start()
-        assert any(
-            "TLS verification disabled" in r.message
-            for r in caplog.records
-        )
+        assert any("TLS verification disabled" in r.message for r in caplog.records)
         await c.stop()
 
     @pytest.mark.asyncio
     async def test_duplicate_url_does_not_warn_twice(
-        self, caplog: pytest.LogCaptureFixture,
+        self,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         TechnitiumClient._tls_warned_urls.clear()
         url = "https://tls-dedup:53443"
@@ -184,10 +190,7 @@ class TestTlsVerificationWarning:
         with caplog.at_level(logging.WARNING):
             await c1.start()
             await c2.start()
-        tls = [
-            r for r in caplog.records
-            if "TLS verification disabled" in r.message
-        ]
+        tls = [r for r in caplog.records if "TLS verification disabled" in r.message]
         assert len(tls) == 1
         await c1.stop()
         await c2.stop()
@@ -229,7 +232,8 @@ class TestHttpxRetryLogic:
 
         with (
             patch.object(
-                c.client, "get",
+                c.client,
+                "get",
                 side_effect=httpx.ConnectError("refused"),
             ),
             pytest.raises(TechnitiumError),

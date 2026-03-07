@@ -60,6 +60,7 @@ _SECURITY_HEADERS: dict[str, str] = {
 # Logging setup
 # ---------------------------------------------------------------------------
 
+
 class _RequestIdFilter(logging.Filter):
     """Inject ``request_id`` into every log record."""
 
@@ -82,8 +83,7 @@ def _configure_logging(*, debug: bool = False) -> None:
     if debug:
         handler.setFormatter(
             logging.Formatter(
-                "%(asctime)s %(levelname)s [%(name)s] "
-                "[%(request_id)s] %(message)s",
+                "%(asctime)s %(levelname)s [%(name)s] [%(request_id)s] %(message)s",
             )
         )
     else:
@@ -152,7 +152,8 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
 
     # Wait for in-flight operations to complete (up to 10s)
     pending = [
-        t for t in asyncio.all_tasks()
+        t
+        for t in asyncio.all_tasks()
         if t is not asyncio.current_task() and not t.done()
     ]
     if pending:
@@ -261,7 +262,8 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(ServiceUnavailableError)
     async def _service_unavailable_handler(
-        _req: Request, exc: ServiceUnavailableError,
+        _req: Request,
+        exc: ServiceUnavailableError,
     ) -> JSONResponse:
         return _error_json(exc.code.value, str(exc), 503)
 

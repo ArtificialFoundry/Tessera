@@ -19,15 +19,11 @@ class RequestSizeLimitMiddleware:
     streamed body exceeds *max_body_size* bytes.
     """
 
-    def __init__(
-        self, app: ASGIApp, max_body_size: int = 1_048_576
-    ) -> None:
+    def __init__(self, app: ASGIApp, max_body_size: int = 1_048_576) -> None:
         self._app = app
         self._max_body_size = max_body_size
 
-    async def __call__(
-        self, scope: Scope, receive: Receive, send: Send
-    ) -> None:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         """ASGI entry point."""
         if scope["type"] != "http":
             await self._app(scope, receive, send)
@@ -68,15 +64,19 @@ class RequestSizeLimitMiddleware:
             b'{"error":{"code":"PAYLOAD_TOO_LARGE",'
             b'"message":"Payload too large","detail":null}}'
         )
-        await send({
-            "type": "http.response.start",
-            "status": 413,
-            "headers": [
-                [b"content-type", b"application/json"],
-                [b"content-length", str(len(body)).encode()],
-            ],
-        })
-        await send({
-            "type": "http.response.body",
-            "body": body,
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 413,
+                "headers": [
+                    [b"content-type", b"application/json"],
+                    [b"content-length", str(len(body)).encode()],
+                ],
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": body,
+            }
+        )

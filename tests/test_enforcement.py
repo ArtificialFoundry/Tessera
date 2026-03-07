@@ -336,7 +336,9 @@ class TestCheckLoopJitter:
             side_effect=fake_sleep,
         )
         drift_patch = patch.object(
-            engine, "check_drift", new_callable=AsyncMock,
+            engine,
+            "check_drift",
+            new_callable=AsyncMock,
         )
         with sleep_patch, drift_patch:
             engine._state.pinned_backup_id = "test"

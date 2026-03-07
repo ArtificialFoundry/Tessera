@@ -13,9 +13,7 @@ class TestRequestSizeLimitMiddleware:
 
         app = create_app()
         transport = ASGITransport(app=app)
-        async with AsyncClient(
-            transport=transport, base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.get("/api/v1/ping")
             assert resp.status_code == 200
 
@@ -25,9 +23,7 @@ class TestRequestSizeLimitMiddleware:
 
         app = create_app()
         transport = ASGITransport(app=app)
-        async with AsyncClient(
-            transport=transport, base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
             big_body = "x" * (1_048_576 + 1)
             resp = await client.post(
                 "/api/v1/vote",

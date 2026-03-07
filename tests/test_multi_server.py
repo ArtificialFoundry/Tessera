@@ -59,8 +59,8 @@ class TestPoolActiveRetrieval:
     def test_all_servers_returned(self, pool: TechnitiumPool) -> None:
         assert len(pool.get_all()) == 3
 
-    def test_server_states_include_all_names(self, pool: TechnitiumPool) -> None:
-        states = pool.get_server_states()
+    async def test_server_states_include_all_names(self, pool: TechnitiumPool) -> None:
+        states = await pool.get_server_states()
         assert len(states) == 3
         assert {s["name"] for s in states} == {"dns-1", "dns-2", "dns-3"}
 

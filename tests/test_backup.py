@@ -202,12 +202,8 @@ class TestRestoreRollback:
     def mock_client(self) -> AsyncMock:
         mock = AsyncMock()
         mock._base_url = "https://test:53443"
-        mock.list_scopes = AsyncMock(
-            return_value=[{"name": "LAN", "enabled": True}]
-        )
-        mock.get_scope = AsyncMock(
-            return_value={"reservedLeases": []}
-        )
+        mock.list_scopes = AsyncMock(return_value=[{"name": "LAN", "enabled": True}])
+        mock.get_scope = AsyncMock(return_value={"reservedLeases": []})
         mock.set_scope = AsyncMock()
         mock.add_reservation = AsyncMock()
         mock.remove_reservation = AsyncMock()
@@ -217,9 +213,7 @@ class TestRestoreRollback:
     async def test_restore_snapshots_current_state_before_applying(
         self, tmp_path: Path, mock_client: AsyncMock
     ) -> None:
-        engine = BackupEngine(
-            backup_dir=tmp_path / "backups", max_backups=50
-        )
+        engine = BackupEngine(backup_dir=tmp_path / "backups", max_backups=50)
         engine.set_active_client(mock_client)
         await engine.start()
 
@@ -233,9 +227,7 @@ class TestRestoreRollback:
         self, tmp_path: Path, mock_client: AsyncMock
     ) -> None:
         """Pre-restore backup ID is always present in result."""
-        engine = BackupEngine(
-            backup_dir=tmp_path / "backups", max_backups=50
-        )
+        engine = BackupEngine(backup_dir=tmp_path / "backups", max_backups=50)
         engine.set_active_client(mock_client)
         await engine.start()
 
@@ -252,7 +244,8 @@ class TestAutoBackupBackoff:
     """Exponential backoff in auto-backup loop."""
 
     async def test_initial_backoff_state_is_zero_failures(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """Consecutive failures increment counter."""
         engine = BackupEngine(
@@ -265,7 +258,8 @@ class TestAutoBackupBackoff:
         assert engine._backoff_seconds == 60.0
 
     async def test_successful_backup_resets_failure_counter(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """Backoff state resets after successful backup."""
         mock = AsyncMock()
@@ -280,7 +274,8 @@ class TestAutoBackupBackoff:
         assert engine._backup_count == 1
 
     async def test_engine_degrades_after_five_consecutive_failures(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """Engine status is DEGRADED after 5 consecutive failures."""
         failing = AsyncMock()
@@ -304,13 +299,15 @@ class TestBackupFilesystemLock:
 
     @pytest.mark.asyncio
     async def test_engine_has_filesystem_lock(
-        self, engine: BackupEngine,
+        self,
+        engine: BackupEngine,
     ) -> None:
         assert isinstance(engine._fs_lock, type(threading.Lock()))
 
     @pytest.mark.asyncio
     async def test_list_tolerates_file_deleted_between_glob_and_read(
-        self, engine: BackupEngine,
+        self,
+        engine: BackupEngine,
     ) -> None:
         await engine.start()
         await engine.create_backup("test")
@@ -325,7 +322,8 @@ class TestBackupChecksumIntegrity:
 
     @pytest.mark.asyncio
     async def test_created_backup_contains_valid_checksum(
-        self, engine: BackupEngine,
+        self,
+        engine: BackupEngine,
     ) -> None:
         await engine.start()
         m = await engine.create_backup("cksum test")
@@ -337,7 +335,8 @@ class TestBackupChecksumIntegrity:
 
     @pytest.mark.asyncio
     async def test_tampered_checksum_raises_on_load(
-        self, engine: BackupEngine,
+        self,
+        engine: BackupEngine,
     ) -> None:
         await engine.start()
         m = await engine.create_backup("corrupt test")
@@ -352,7 +351,8 @@ class TestBackupChecksumIntegrity:
     @pytest.mark.asyncio
     @pytest.mark.slow
     async def test_verify_integrity_reports_corrupt_and_valid(
-        self, engine: BackupEngine,
+        self,
+        engine: BackupEngine,
     ) -> None:
         import time
 

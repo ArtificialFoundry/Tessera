@@ -145,9 +145,7 @@ class Settings(BaseSettings):
                 raw = json.loads(self.servers_file.read_text())
                 return [DhcpServer(**s) for s in raw]
             except (json.JSONDecodeError, TypeError, ValueError) as exc:
-                logger.error(
-                    "Failed to parse %s: %s", self.servers_file, exc
-                )
+                logger.error("Failed to parse %s: %s", self.servers_file, exc)
 
         # 3. Legacy fallback
         if self.primary_url or self.standby_url:

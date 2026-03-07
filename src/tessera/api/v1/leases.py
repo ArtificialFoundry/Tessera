@@ -68,9 +68,7 @@ async def all_leases(
         if name:
             result[name] = [
                 _lease_dict_to_entry(lease)
-                for lease in _filter_leases_by_scope(
-                    all_lease_list, scope
-                )
+                for lease in _filter_leases_by_scope(all_lease_list, scope)
             ]
 
     return AllLeasesResponse(scopes=result)
@@ -93,14 +91,13 @@ async def scope_leases(
     return LeasesResponse(
         scope=scope_name,
         leases=[_lease_dict_to_entry(lease) for lease in page],
-        pagination=PaginationMeta(
-            total=total, offset=offset, limit=limit
-        ),
+        pagination=PaginationMeta(total=total, offset=offset, limit=limit),
     )
 
 
 @router.delete(
-    "/{scope_name}/{address}", response_model=MessageResponse,
+    "/{scope_name}/{address}",
+    response_model=MessageResponse,
     dependencies=[Depends(require_admin)],
 )
 async def remove_lease(
@@ -126,11 +123,7 @@ async def convert_lease(
     """Convert a dynamic lease to a reserved lease."""
     all_leases = await client.get_leases(scope_name)
     lease = next(
-        (
-            entry
-            for entry in all_leases
-            if entry.get("address") == address
-        ),
+        (entry for entry in all_leases if entry.get("address") == address),
         None,
     )
     if not lease:
@@ -153,6 +146,4 @@ async def convert_lease(
         comments="Converted from dynamic lease",
     )
 
-    return MessageResponse(
-        message=f"Lease converted to reservation: {address}"
-    )
+    return MessageResponse(message=f"Lease converted to reservation: {address}")

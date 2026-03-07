@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel
 
 # -- Health -------------------------------------------------------------------
@@ -81,8 +83,8 @@ class VoteRequest(BaseModel):
     status: str
     timestamp: int
     signature: str
-    http_status: str = ""   # "up" or "down" — HTTP API check result
-    dhcp_status: str = ""   # "up" or "down" — DHCP broadcast probe result
+    http_status: str = ""  # "up" or "down" — HTTP API check result
+    dhcp_status: str = ""  # "up" or "down" — DHCP broadcast probe result
 
 
 class VoteResponse(BaseModel):
@@ -101,8 +103,8 @@ class VoterInfo(BaseModel):
     timestamp: float
     received_at: float
     verification: str = "unverified"
-    http_status: str = ""   # "up", "down", or "" (not reported)
-    dhcp_status: str = ""   # "up", "down", or "" (not reported)
+    http_status: str = ""  # "up", "down", or "" (not reported)
+    dhcp_status: str = ""  # "up", "down", or "" (not reported)
 
 
 class TransitionInfo(BaseModel):

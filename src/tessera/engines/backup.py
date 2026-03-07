@@ -38,6 +38,7 @@ class BackupError(AppError):
 
     def __init__(self, message: str) -> None:
         from tessera.exceptions import ErrorCode
+
         super().__init__(message, code=ErrorCode.BACKUP_ERROR)
 
 
@@ -179,12 +180,15 @@ class BackupEngine(Engine):
         """Save current settings to the store."""
         if not self._store:
             return
-        self._store.put("backup", {
-            "auto_enabled": self._auto_enabled,
-            "cron_schedule": self._cron_schedule,
-            "max_backups": self._max_backups,
-            "auto_interval": self._auto_interval,
-        })
+        self._store.put(
+            "backup",
+            {
+                "auto_enabled": self._auto_enabled,
+                "cron_schedule": self._cron_schedule,
+                "max_backups": self._max_backups,
+                "auto_interval": self._auto_interval,
+            },
+        )
 
     def set_active_client(self, client: DhcpClientProtocol) -> None:
         """Set the active Technitium client for snapshotting."""
@@ -516,9 +520,7 @@ class BackupEngine(Engine):
                     description=f"Pre-restore snapshot before restoring {backup_id}",
                 )
                 pre_restore_backup_id = pre_manifest.backup_id
-                logger.info(
-                    "Pre-restore backup created: %s", pre_restore_backup_id
-                )
+                logger.info("Pre-restore backup created: %s", pre_restore_backup_id)
             except Exception as exc:
                 logger.exception("Failed to create pre-restore backup")
                 raise BackupError(

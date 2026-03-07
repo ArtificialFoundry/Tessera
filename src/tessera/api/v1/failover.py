@@ -29,7 +29,9 @@ async def submit_vote(
     failover: FailoverEngine = Depends(get_failover_engine),
 ) -> VoteResponse:
     """Submit a voter health check."""
-    source_ip = request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or (request.client.host if request.client else "")
+    xff = request.headers.get("X-Forwarded-For", "")
+    client_host = request.client.host if request.client else ""
+    source_ip = xff.split(",")[0].strip() or client_host
     vote = failover.submit_vote(
         voter=payload.voter,
         status=payload.status,
@@ -60,10 +62,7 @@ async def failover_status(
     votes = failover.votes
     all_transitions = failover.transitions
     total = len(all_transitions)
-    page = all_transitions[
-        transitions_offset : transitions_offset
-        + transitions_limit
-    ]
+    page = all_transitions[transitions_offset : transitions_offset + transitions_limit]
 
     return FailoverStatusResponse(
         state=evaluation["state"],

@@ -37,9 +37,7 @@ async def get_enforcement_status(
 
     all_history = state.history
     total = len(all_history)
-    page = all_history[
-        history_offset : history_offset + history_limit
-    ]
+    page = all_history[history_offset : history_offset + history_limit]
 
     return EnforcementStatusResponse(
         mode=state.mode.value,
@@ -76,16 +74,11 @@ async def set_enforcement_mode(
     except ValueError as exc:
         raise HTTPException(
             status_code=400,
-            detail=(
-                f"Invalid mode: {body.mode}. "
-                "Must be: off, monitor, enforce"
-            ),
+            detail=(f"Invalid mode: {body.mode}. Must be: off, monitor, enforce"),
         ) from exc
 
     engine.set_mode(mode)
-    return MessageResponse(
-        message=f"Enforcement mode set to {mode.value}"
-    )
+    return MessageResponse(message=f"Enforcement mode set to {mode.value}")
 
 
 @router.post(
@@ -99,9 +92,7 @@ async def pin_backup(
 ) -> MessageResponse:
     """Pin a backup as the desired DHCP state."""
     await engine.pin_backup(body.backup_id)
-    return MessageResponse(
-        message=f"Pinned backup '{body.backup_id}' as desired state"
-    )
+    return MessageResponse(message=f"Pinned backup '{body.backup_id}' as desired state")
 
 
 @router.post(
@@ -114,9 +105,7 @@ async def unpin_backup(
 ) -> MessageResponse:
     """Unpin the current backup and disable enforcement."""
     engine.unpin()
-    return MessageResponse(
-        message="Unpinned backup, enforcement disabled"
-    )
+    return MessageResponse(message="Unpinned backup, enforcement disabled")
 
 
 @router.post(

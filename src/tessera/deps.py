@@ -53,7 +53,9 @@ def get_engine_registry() -> EngineRegistry:
     # Create multi-server pool
     servers = settings.get_servers()
     pool = TechnitiumPool.from_servers(
-        servers, token, ca_cert_file=settings.ca_cert_file,
+        servers,
+        token,
+        ca_cert_file=settings.ca_cert_file,
     )
 
     # Register the active client as the "technitium" engine

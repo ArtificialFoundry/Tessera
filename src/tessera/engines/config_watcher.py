@@ -123,9 +123,7 @@ class ConfigWatcherEngine(Engine):
     def _sighup_handler(self) -> None:
         """Handle SIGHUP by scheduling an immediate reload."""
         logger.info("SIGHUP received — triggering config reload")
-        self._sighup_task = asyncio.create_task(
-            self._check_all_files()
-        )
+        self._sighup_task = asyncio.create_task(self._check_all_files())
 
     def _watched_paths(self) -> list[Path]:
         """Return list of paths being watched."""

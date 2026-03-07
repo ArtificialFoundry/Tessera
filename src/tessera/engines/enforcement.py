@@ -32,6 +32,7 @@ class EnforcementError(AppError):
 
     def __init__(self, message: str) -> None:
         from tessera.exceptions import ErrorCode
+
         super().__init__(message, code=ErrorCode.ENFORCEMENT_ERROR)
 
 
@@ -169,14 +170,17 @@ class EnforcementEngine(Engine):
         """Save current settings to the store."""
         if not self._store:
             return
-        self._store.put("enforcement", {
-            "mode": str(self._state.mode),
-            "check_interval": self._state.check_interval,
-            "backup_on_pin": self._state.backup_on_pin,
-            "auto_restore_cooldown": self._state.auto_restore_cooldown,
-            "max_history": self._state.max_history,
-            "pinned_backup_id": self._state.pinned_backup_id,
-        })
+        self._store.put(
+            "enforcement",
+            {
+                "mode": str(self._state.mode),
+                "check_interval": self._state.check_interval,
+                "backup_on_pin": self._state.backup_on_pin,
+                "auto_restore_cooldown": self._state.auto_restore_cooldown,
+                "max_history": self._state.max_history,
+                "pinned_backup_id": self._state.pinned_backup_id,
+            },
+        )
 
     def set_backup_engine(self, engine: BackupEngine) -> None:
         """Set the backup engine for snapshot access.
