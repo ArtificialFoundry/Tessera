@@ -6,9 +6,10 @@ SSL verification is disabled for self-signed certificates.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, ClassVar, Protocol, runtime_checkable
 
 import httpx
 
@@ -58,6 +59,8 @@ class TechnitiumClient(Engine):
     version: str = "1.0.0"
     description: str = "Technitium DNS Server DHCP API client"
 
+    _tls_warned_urls: ClassVar[set[str]] = set()
+
     def __init__(
         self,
         base_url: str,
@@ -78,6 +81,13 @@ class TechnitiumClient(Engine):
         verify: bool | str = False
         if self._ca_cert_file:
             verify = self._ca_cert_file
+        if verify is False and self._base_url not in TechnitiumClient._tls_warned_urls:
+            TechnitiumClient._tls_warned_urls.add(self._base_url)
+            logger.warning(
+                "TLS verification disabled for %s "
+                "— connections are vulnerable to MITM attacks",
+                self._base_url,
+            )
         self._client = httpx.AsyncClient(
             base_url=self._base_url,
             verify=verify,
@@ -122,7 +132,7 @@ class TechnitiumClient(Engine):
         params: dict[str, Any] | None = None,
         data: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Make an authenticated request to Technitium.
+        """Make an authenticated request to Technitium with retry.
 
         Args:
             method: HTTP method.
@@ -134,35 +144,77 @@ class TechnitiumClient(Engine):
             Parsed JSON response.
 
         Raises:
-            TechnitiumError: On HTTP or API errors.
+            TechnitiumError: On HTTP or API errors after retries exhausted.
         """
         all_params = {"token": self._token}
         if params:
             all_params.update(params)
 
-        try:
-            if method == "GET":
-                resp = await self.client.get(path, params=all_params)
-            else:
-                form_data = dict(all_params)
-                if data:
-                    form_data.update(data)
-                resp = await self.client.post(path, data=form_data)
-            resp.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            raise TechnitiumError(
-                f"HTTP {exc.response.status_code}: {exc.response.text}",
-                status_code=exc.response.status_code,
-            ) from exc
-        except httpx.HTTPError as exc:
-            raise TechnitiumError(str(exc)) from exc
+        _max_attempts = 3
+        _backoff = [0.5, 1.0, 2.0]
+        last_exc: Exception | None = None
 
-        result: dict[str, Any] = resp.json()
-        if result.get("status") == "error":
-            raise TechnitiumError(
-                result.get("errorMessage", "Unknown API error"),
-            )
-        return result
+        for attempt in range(_max_attempts):
+            try:
+                if method == "GET":
+                    resp = await self.client.get(path, params=all_params)
+                else:
+                    form_data = dict(all_params)
+                    if data:
+                        form_data.update(data)
+                    resp = await self.client.post(path, data=form_data)
+
+                if resp.status_code in (502, 503, 504):
+                    raise httpx.HTTPStatusError(
+                        f"HTTP {resp.status_code}",
+                        request=resp.request,
+                        response=resp,
+                    )
+
+                resp.raise_for_status()
+            except (httpx.ConnectError, httpx.TimeoutException) as exc:
+                last_exc = exc
+                if attempt < _max_attempts - 1:
+                    logger.warning(
+                        "Technitium request %s %s failed "
+                        "(attempt %d/%d): %s — retrying",
+                        method, path, attempt + 1,
+                        _max_attempts, exc,
+                    )
+                    await asyncio.sleep(_backoff[attempt])
+                    continue
+                raise TechnitiumError(str(exc)) from exc
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code in (502, 503, 504):
+                    last_exc = exc
+                    if attempt < _max_attempts - 1:
+                        logger.warning(
+                            "Technitium request %s %s returned %d (attempt %d/%d) — retrying in %.1fs",
+                            method, path, exc.response.status_code,
+                            attempt + 1, _max_attempts, _backoff[attempt],
+                        )
+                        await asyncio.sleep(_backoff[attempt])
+                        continue
+                    raise TechnitiumError(
+                        f"HTTP {exc.response.status_code}: {exc.response.text}",
+                        status_code=exc.response.status_code,
+                    ) from exc
+                raise TechnitiumError(
+                    f"HTTP {exc.response.status_code}: {exc.response.text}",
+                    status_code=exc.response.status_code,
+                ) from exc
+            except httpx.HTTPError as exc:
+                raise TechnitiumError(str(exc)) from exc
+
+            result: dict[str, Any] = resp.json()
+            if result.get("status") == "error":
+                raise TechnitiumError(
+                    result.get("errorMessage", "Unknown API error"),
+                )
+            return result
+
+        # Should not reach here, but satisfy type checker
+        raise TechnitiumError(str(last_exc))
 
     async def list_scopes(self) -> list[dict[str, Any]]:
         """List all DHCP scopes."""

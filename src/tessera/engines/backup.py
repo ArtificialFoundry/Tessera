@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import logging
+import threading
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
@@ -35,7 +37,8 @@ class BackupError(AppError):
     """A backup operation failed."""
 
     def __init__(self, message: str) -> None:
-        super().__init__(message)
+        from tessera.exceptions import ErrorCode
+        super().__init__(message, code=ErrorCode.BACKUP_ERROR)
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,6 +144,7 @@ class BackupEngine(Engine):
         self._store = settings_store
         self._consecutive_failures: int = 0
         self._backoff_seconds: float = 60.0
+        self._fs_lock = threading.Lock()
 
         # Restore persisted settings (override defaults)
         self._restore_settings()
@@ -392,8 +396,17 @@ class BackupEngine(Engine):
 
         backup = BackupData(manifest=manifest, scopes=scope_snapshots)
         filepath = self._backup_dir / f"{backup_id}.json"
-        content = json.dumps(backup.to_dict(), indent=2)
-        await asyncio.to_thread(filepath.write_text, content)
+        payload = backup.to_dict()
+        raw = json.dumps(payload, sort_keys=True).encode()
+        checksum = hashlib.sha256(raw).hexdigest()
+        payload["checksum"] = checksum
+        content = json.dumps(payload, indent=2)
+
+        def _write() -> None:
+            with self._fs_lock:
+                filepath.write_text(content)
+
+        await asyncio.to_thread(_write)
 
         self._last_backup = now
         self._backup_count += 1
@@ -419,12 +432,20 @@ class BackupEngine(Engine):
     def _list_backups_sync(self) -> list[BackupManifest]:
         """Synchronous implementation of list_backups."""
         manifests: list[BackupManifest] = []
-        for filepath in sorted(self._backup_dir.glob("*.json"), reverse=True):
-            try:
-                data = json.loads(filepath.read_text())
-                manifests.append(BackupManifest(**data["manifest"]))
-            except (json.JSONDecodeError, KeyError):
-                logger.warning("Skipping corrupt backup: %s", filepath.name)
+        with self._fs_lock:
+            for filepath in sorted(self._backup_dir.glob("*.json"), reverse=True):
+                try:
+                    raw = filepath.read_text()
+                except FileNotFoundError:
+                    continue
+                try:
+                    data = json.loads(raw)
+                    self._verify_checksum(data, filepath.stem)
+                    manifests.append(BackupManifest(**data["manifest"]))
+                except (json.JSONDecodeError, KeyError):
+                    logger.warning("Skipping corrupt backup: %s", filepath.name)
+                except BackupError:
+                    logger.warning("Checksum mismatch: %s", filepath.name)
         return manifests
 
     async def get_backup(self, backup_id: str) -> BackupData:
@@ -444,6 +465,7 @@ class BackupEngine(Engine):
             raise NotFoundError("Backup", backup_id)
         text = await asyncio.to_thread(filepath.read_text)
         data = json.loads(text)
+        self._verify_checksum(data, backup_id)
         return BackupData.from_dict(data)
 
     def delete_backup(self, backup_id: str) -> None:
@@ -455,10 +477,11 @@ class BackupEngine(Engine):
         Raises:
             NotFoundError: If the backup does not exist.
         """
-        filepath = self._backup_dir / f"{backup_id}.json"
-        if not filepath.is_file():
-            raise NotFoundError("Backup", backup_id)
-        filepath.unlink()
+        with self._fs_lock:
+            filepath = self._backup_dir / f"{backup_id}.json"
+            if not filepath.is_file():
+                raise NotFoundError("Backup", backup_id)
+            filepath.unlink()
         logger.info("Backup deleted: %s", backup_id)
 
     async def restore_backup(
@@ -695,13 +718,61 @@ class BackupEngine(Engine):
         """Delete oldest backups exceeding the retention limit."""
         await asyncio.to_thread(self._enforce_retention_sync)
 
+    @staticmethod
+    def _verify_checksum(data: dict[str, Any], backup_id: str) -> None:
+        """Verify the SHA-256 checksum of a backup payload.
+
+        Raises:
+            BackupError: If checksum does not match.
+        """
+        stored = data.pop("checksum", None)
+        if stored is None:
+            return  # legacy backup without checksum
+        computed = hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
+        if computed != stored:
+            raise BackupError(f"Backup integrity check failed: {backup_id}")
+        # Restore so callers still see it
+        data["checksum"] = stored
+
+    async def verify_integrity(self) -> dict[str, Any]:
+        """Check all stored backups and return an integrity report.
+
+        Returns:
+            Dict with ``total``, ``valid``, ``corrupt`` counts and list of
+            ``failures`` (backup filenames that failed verification).
+        """
+        return await asyncio.to_thread(self._verify_integrity_sync)
+
+    def _verify_integrity_sync(self) -> dict[str, Any]:
+        failures: list[str] = []
+        total = 0
+        with self._fs_lock:
+            for filepath in sorted(self._backup_dir.glob("*.json")):
+                total += 1
+                try:
+                    raw = filepath.read_text()
+                except FileNotFoundError:
+                    continue
+                try:
+                    data = json.loads(raw)
+                    self._verify_checksum(data, filepath.stem)
+                except (json.JSONDecodeError, KeyError, BackupError):
+                    failures.append(filepath.name)
+        return {
+            "total": total,
+            "valid": total - len(failures),
+            "corrupt": len(failures),
+            "failures": failures,
+        }
+
     def _enforce_retention_sync(self) -> None:
         """Synchronous implementation of retention enforcement."""
-        backups = sorted(self._backup_dir.glob("*.json"))
-        while len(backups) > self._max_backups:
-            oldest = backups.pop(0)
-            oldest.unlink()
-            logger.info("Retention: deleted old backup %s", oldest.name)
+        with self._fs_lock:
+            backups = sorted(self._backup_dir.glob("*.json"))
+            while len(backups) > self._max_backups:
+                oldest = backups.pop(0)
+                oldest.unlink()
+                logger.info("Retention: deleted old backup %s", oldest.name)
 
     async def check_health(self) -> EngineHealth:
         """Return backup engine health."""

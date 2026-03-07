@@ -11,10 +11,18 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI, Request, Response
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from tessera.deps import get_engine_registry, get_settings
 from tessera.engines.failover import FailoverEngine
+from tessera.exceptions import (
+    AppError,
+    AuthenticationError,
+    ErrorCode,
+    NotFoundError,
+    RateLimitError,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable, Generator
@@ -228,6 +236,52 @@ def create_app() -> FastAPI:
 
     app.include_router(v1_router, prefix="/api/v1")
     app.include_router(pages_router)
+
+    # -- Global exception handlers ------------------------------------------
+
+    def _error_json(
+        code: str,
+        message: str,
+        status: int,
+        detail: dict[str, object] | None = None,
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=status,
+            content={"error": {"code": code, "message": message, "detail": detail}},
+        )
+
+    @app.exception_handler(NotFoundError)
+    async def _not_found_handler(_req: Request, exc: NotFoundError) -> JSONResponse:
+        return _error_json(exc.code.value, str(exc), 404)
+
+    @app.exception_handler(AuthenticationError)
+    async def _auth_handler(_req: Request, exc: AuthenticationError) -> JSONResponse:
+        return _error_json(exc.code.value, str(exc), 401)
+
+    @app.exception_handler(RateLimitError)
+    async def _rate_limit_handler(_req: Request, exc: RateLimitError) -> JSONResponse:
+        resp = _error_json(exc.code.value, str(exc), 429)
+        resp.headers["Retry-After"] = str(int(exc.retry_after))
+        return resp
+
+    @app.exception_handler(AppError)
+    async def _app_error_handler(_req: Request, exc: AppError) -> JSONResponse:
+        status = 500
+        if exc.code == ErrorCode.VALIDATION_ERROR:
+            status = 400
+        elif exc.code == ErrorCode.TECHNITIUM_ERROR:
+            status = 502
+        elif exc.code in (
+            ErrorCode.BACKUP_ERROR,
+            ErrorCode.ENFORCEMENT_ERROR,
+            ErrorCode.SCOPE_SYNC_ERROR,
+        ):
+            status = 500
+        elif exc.code == ErrorCode.REGISTRATION_ERROR:
+            status = 400
+        elif exc.code == ErrorCode.PAYLOAD_TOO_LARGE:
+            status = 413
+        return _error_json(exc.code.value, str(exc), status)
 
     @app.middleware("http")
     async def request_id_middleware(

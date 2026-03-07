@@ -22,7 +22,6 @@ dev = [
     "pytest-cov>=6.0",
     "ruff>=0.9",
     "types-croniter>=6.0",
-    "aiosqlite>=0.20",
 ]
 
 [build-system]

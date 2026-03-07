@@ -64,7 +64,10 @@ class RequestSizeLimitMiddleware:
 
     @staticmethod
     async def _send_413(send: Send) -> None:
-        body = b'{"detail":"Payload too large"}'
+        body = (
+            b'{"error":{"code":"PAYLOAD_TOO_LARGE",'
+            b'"message":"Payload too large","detail":null}}'
+        )
         await send({
             "type": "http.response.start",
             "status": 413,
