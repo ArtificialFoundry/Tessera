@@ -57,6 +57,13 @@ function liveDot(live: VoterInfo | null): string {
   return live.status === "up" ? "online" : "warn";
 }
 
+function checkBadge(label: string, status: string | undefined): any {
+  if (!status) return null;
+  const cls = status === "up" ? "check-up" : "check-down";
+  const icon = status === "up" ? "✓" : "✗";
+  return <span class={`check-badge ${cls}`} title={`${label}: ${status}`}>{label} {icon}</span>;
+}
+
 function liveLabel(live: VoterInfo | null): string {
   if (!live) return "No votes yet";
   if (!isOnline(live)) return `Offline · last ${timeAgo(live.received_at)}`;
@@ -510,7 +517,21 @@ function VoterRow({ v }: { v: EnrichedVoter }) {
         </div>
       </td>
       <td><span class="voter-status" style={`color:${statusColor(v.status)}`}>{v.status}</span></td>
-      <td><span class={`live-status ${dot}`}>{liveLabel(v.live)}</span></td>
+      <td>
+        <span class={`live-status ${dot}`}>{liveLabel(v.live)}</span>
+        {v.live && isOnline(v.live) && (v.live.http_status || v.live.dhcp_status) && (
+          <div class="check-badges" style="margin-top:2px">
+            {checkBadge("HTTP", v.live.http_status)}
+            {checkBadge("DHCP", v.live.dhcp_status)}
+          </div>
+        )}
+        {v.live && isOnline(v.live) && v.live.http_status === "down" && v.live.dhcp_status === "up" && (
+          <div style="font-size:10px;color:var(--yellow);margin-top:2px">API down, DHCP serving</div>
+        )}
+        {v.live && isOnline(v.live) && v.live.http_status === "up" && v.live.dhcp_status === "down" && (
+          <div style="font-size:10px;color:var(--yellow);margin-top:2px">API up, DHCP probe failed</div>
+        )}
+      </td>
       <td style="font-size:12px">{v.ip_address || "—"}</td>
       <td style="font-size:12px">{v.bind_ip ? <code style="font-size:11px">{v.bind_ip}</code> : <span style="color:var(--text-dim)">any</span>}</td>
       <td style="font-size:12px" title={formatTime(v.registered_at)}>{timeAgo(v.registered_at)}</td>

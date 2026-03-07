@@ -1,69 +1,99 @@
 #!/usr/bin/env bash
-# Tessera DHCP failover voter agent.
-# Deployed to VMs as a systemd timer. Checks primary DHCP health
-# and submits a signed vote to the Tessera API.
+# Tessera voter agent — checks active DHCP server health, submits vote.
 #
 # Config: /etc/tessera/voter.conf
-# Required: curl, openssl
-# Optional: nmap (for real DHCP probe — requires root/sudo)
+#   VOTER_NAME     — Voter identifier (required)
+#   VOTER_PSK      — Pre-shared key for HMAC signing (required)
+#   TESSERA_URL    — Tessera API base URL (required)
+#   CHECK_TIMEOUT  — HTTP check timeout in seconds (default: 5)
+#   DHCP_TIMEOUT   — nmap DHCP broadcast probe timeout in seconds (default: CHECK_TIMEOUT)
+#   DHCP_INTERFACE — for nmap DHCP probe (default: auto-detect)
 #
-# DHCP probe uses `nmap --script broadcast-dhcp-discover` to send a
-# DHCP DISCOVER and verify the primary server responds with a DHCP OFFER.
-# This proves DHCP is actually serving leases, not just that the web API is up.
-# Fallback to HTTP check if nmap is not installed.
+# Flow:
+#   1. Fetch active server from Tessera (GET /api/v1/servers)
+#   2. HTTP check (Technitium API ping) — primary check
+#   3. DHCP broadcast probe (nmap) — fallback if HTTP fails
+#   4. Submit signed vote with both check results
 #
-# Config variables (voter.conf):
-#   VOTER_NAME      - (required) Voter identifier
-#   VOTER_PSK       - (required) Pre-shared key for HMAC signing
-#   TESSERA_URL     - (required) Tessera API base URL
-#   PRIMARY_IP      - (required) Primary DHCP server IP
-#   PRIMARY_PORT    - (optional, default: 53443) Technitium API port
-#   CHECK_TIMEOUT   - (optional, default: 5) Timeout for checks in seconds
-#   DHCP_INTERFACE  - (optional, default: auto-detect) Network interface for DHCP probe
-#   CHECK_METHOD    - (optional, default: dhcp) One of: dhcp, http, both
-#                     dhcp  = nmap probe, fallback to http if nmap missing
-#                     http  = HTTP API check only (legacy behavior)
-#                     both  = require both dhcp AND http to pass
+# Overall status: "up" if either check passes, "down" if both fail.
+# Both http_status and dhcp_status are sent so Tessera UI shows
+# per-check badges (e.g. "HTTP ✗ / DHCP ✓" = degraded but serving).
+#
+# Required: curl, openssl. Optional: nmap (DHCP broadcast probe).
 set -euo pipefail
 
 CONF="/etc/tessera/voter.conf"
-if [[ ! -f "$CONF" ]]; then
-    echo "ERROR: $CONF not found" >&2
-    exit 1
-fi
-# shellcheck source=/dev/null
+[[ -f "$CONF" ]] || { echo "ERROR: $CONF not found" >&2; exit 1; }
+
+# Parse config
 while IFS='=' read -r key val; do
-    # Skip comments and empty lines
     [[ "$key" =~ ^[[:space:]]*# ]] && continue
     [[ -z "$key" ]] && continue
-    # Strip quotes and leading/trailing whitespace
     key=$(echo "$key" | xargs)
     val=$(echo "$val" | sed 's/^["'"'"']//' | sed 's/["'"'"']$//')
-    # Only accept known variables
     case "$key" in
-        VOTER_NAME|VOTER_PSK|TESSERA_URL|PRIMARY_IP|PRIMARY_PORT|CHECK_TIMEOUT|DHCP_INTERFACE|CHECK_METHOD)
-            export "$key=$val"
-            ;;
+        VOTER_NAME|VOTER_PSK|TESSERA_URL|CHECK_TIMEOUT|DHCP_TIMEOUT|DHCP_INTERFACE)
+            export "$key=$val" ;;
     esac
 done < "$CONF"
 
-# Required vars: VOTER_NAME, VOTER_PSK, TESSERA_URL, PRIMARY_IP
 : "${VOTER_NAME:?VOTER_NAME not set}"
 : "${VOTER_PSK:?VOTER_PSK not set}"
 : "${TESSERA_URL:?TESSERA_URL not set}"
-: "${PRIMARY_IP:?PRIMARY_IP not set}"
-: "${PRIMARY_PORT:=53443}"
 : "${CHECK_TIMEOUT:=5}"
+: "${DHCP_TIMEOUT:=$CHECK_TIMEOUT}"
 : "${DHCP_INTERFACE:=}"
-: "${CHECK_METHOD:=dhcp}"
 
-# Auto-detect primary network interface if not set
+# ── Submit vote ──────────────────────────────────────────────────────────────
+_submit_vote() {
+    local status="$1" http_s="$2" dhcp_s="$3" target="${4:-unknown}"
+    local ts sig
+    ts=$(date +%s)
+    sig=$(printf '%s|%s|%s' "$VOTER_NAME" "$status" "$ts" \
+        | openssl dgst -sha256 -hmac "$VOTER_PSK" -hex 2>/dev/null \
+        | awk '{print $NF}')
+
+    local payload="{\"voter\":\"${VOTER_NAME}\",\"status\":\"${status}\",\"timestamp\":${ts},\"signature\":\"${sig}\""
+    [[ -n "$http_s" ]] && payload="${payload},\"http_status\":\"${http_s}\""
+    [[ -n "$dhcp_s" ]] && payload="${payload},\"dhcp_status\":\"${dhcp_s}\""
+    payload="${payload}}"
+
+    curl -sk --max-time 10 \
+        -X POST "${TESSERA_URL}/api/v1/vote" \
+        -H "Content-Type: application/json" \
+        -d "$payload" \
+        -o /dev/null -w "Vote: ${VOTER_NAME}=${status} http=${http_s:-n/a} dhcp=${dhcp_s:-n/a} (${target}) → %{http_code}\n" 2>/dev/null \
+        || echo "WARN: Failed to submit vote to Tessera" >&2
+}
+
+# ── Fetch active server from Tessera ─────────────────────────────────────────
+SERVERS_JSON=$(curl -sk --max-time "$CHECK_TIMEOUT" \
+    "${TESSERA_URL}/api/v1/servers" 2>/dev/null) || {
+    echo "ERROR: Cannot reach Tessera at $TESSERA_URL" >&2
+    exit 1
+}
+
+ACTIVE_URL=""
+for pattern in \
+    '"role"\s*:\s*"active"[^}]*"url"\s*:\s*"[^"]*"' \
+    '"url"\s*:\s*"[^"]*"[^}]*"role"\s*:\s*"active"'; do
+    ACTIVE_URL=$(echo "$SERVERS_JSON" | grep -oP "$pattern" \
+        | grep -oP '"url"\s*:\s*"\K[^"]+' | head -1 || true)
+    [[ -n "$ACTIVE_URL" ]] && break
+done
+
+if [[ -z "$ACTIVE_URL" ]]; then
+    echo "ERROR: No active server in Tessera response" >&2
+    _submit_vote "down" "down" "" "no-active-server"
+    exit 1
+fi
+
+ACTIVE_IP=$(echo "$ACTIVE_URL" | sed -E 's|https?://||;s|:[0-9]+.*||;s|/.*||')
+ACTIVE_PORT=$(echo "$ACTIVE_URL" | grep -oP ':\K[0-9]+' || echo "53443")
+
+# ── Health checks ────────────────────────────────────────────────────────────
 _detect_interface() {
-    if [[ -n "$DHCP_INTERFACE" ]]; then
-        echo "$DHCP_INTERFACE"
-        return
-    fi
-    # Linux: ip route, macOS/BSD: route + ifconfig
+    [[ -n "$DHCP_INTERFACE" ]] && { echo "$DHCP_INTERFACE"; return; }
     if command -v ip &>/dev/null; then
         ip route show default 2>/dev/null | awk '{print $5; exit}'
     elif command -v route &>/dev/null; then
@@ -71,87 +101,46 @@ _detect_interface() {
     fi
 }
 
-# DHCP probe via nmap broadcast-dhcp-discover
-# Requires: nmap, root/sudo privileges
-# Returns 0 if PRIMARY_IP responds with a DHCP OFFER, 1 otherwise
 _check_dhcp() {
+    command -v nmap &>/dev/null || return 1
     local iface
     iface=$(_detect_interface)
-    if [[ -z "$iface" ]]; then
-        echo "WARN: Cannot detect network interface for DHCP probe" >&2
-        return 1
-    fi
-
-    local nmap_out
-    # nmap broadcast-dhcp-discover needs raw sockets → root/sudo
-    if ! nmap_out=$(sudo nmap --script broadcast-dhcp-discover \
-        -e "$iface" --script-args timeout="${CHECK_TIMEOUT}s" 2>/dev/null); then
-        echo "WARN: nmap DHCP probe failed" >&2
-        return 1
-    fi
-
-    # Check if the primary IP appears as the DHCP server in the response
-    if echo "$nmap_out" | grep -q "Server Identifier: ${PRIMARY_IP}"; then
-        return 0
-    else
-        echo "WARN: DHCP OFFER not from ${PRIMARY_IP}" >&2
-        return 1
-    fi
+    [[ -z "$iface" ]] && return 1
+    local out
+    out=$(sudo nmap --script broadcast-dhcp-discover \
+        -e "$iface" --script-args timeout="${DHCP_TIMEOUT}s" 2>/dev/null) || return 1
+    echo "$out" | grep -q "Server Identifier: ${ACTIVE_IP}"
 }
 
-# HTTP API check (legacy method)
-# Returns 0 if Technitium web API responds, 1 otherwise
 _check_http() {
-    local http_code
-    http_code=$(curl -sk --max-time "$CHECK_TIMEOUT" \
-        "https://${PRIMARY_IP}:${PRIMARY_PORT}/api/dhcp/scopes/list?token=dummy" \
+    local code
+    code=$(curl -sk --max-time "$CHECK_TIMEOUT" \
+        "https://${ACTIVE_IP}:${ACTIVE_PORT}/api/dhcp/scopes/list?token=dummy" \
         -o /dev/null -w '%{http_code}' 2>/dev/null || echo "000")
-    if echo "$http_code" | grep -qE '^(200|401|403)$'; then
-        return 0
-    fi
-    return 1
+    echo "$code" | grep -qE '^(200|401|403)$'
 }
 
-# Determine status based on CHECK_METHOD
-STATUS="down"
-case "$CHECK_METHOD" in
-    dhcp)
-        if command -v nmap &>/dev/null; then
-            _check_dhcp && STATUS="up"
-        else
-            echo "WARN: nmap not found, falling back to HTTP check" >&2
-            _check_http && STATUS="up"
-        fi
-        ;;
-    http)
-        _check_http && STATUS="up"
-        ;;
-    both)
-        dhcp_ok=false
-        http_ok=false
-        if command -v nmap &>/dev/null; then
-            _check_dhcp && dhcp_ok=true
-        else
-            echo "WARN: nmap not found, DHCP check skipped in 'both' mode" >&2
-        fi
-        _check_http && http_ok=true
-        if $dhcp_ok && $http_ok; then
-            STATUS="up"
-        fi
-        ;;
-    *)
-        echo "ERROR: Invalid CHECK_METHOD: $CHECK_METHOD (expected: dhcp, http, both)" >&2
-        exit 1
-        ;;
-esac
+# ── Run checks ───────────────────────────────────────────────────────────────
+# HTTP is the primary check. DHCP broadcast is the fallback/secondary.
+# Both are always attempted so Tessera gets the full picture.
 
-TIMESTAMP=$(date +%s)
-SIGNATURE=$(printf '%s|%s|%s' "$VOTER_NAME" "$STATUS" "$TIMESTAMP" \
-    | openssl dgst -sha256 -hmac "$VOTER_PSK" -hex 2>/dev/null \
-    | awk '{print $NF}')
+HTTP_STATUS="down"
+DHCP_STATUS=""
 
-curl -sk --max-time 10 \
-    -X POST "${TESSERA_URL}/api/v1/vote" \
-    -H "Content-Type: application/json" \
-    -d "{\"voter\":\"${VOTER_NAME}\",\"status\":\"${STATUS}\",\"timestamp\":${TIMESTAMP},\"signature\":\"${SIGNATURE}\"}" \
-    -o /dev/null -w "Vote submitted: %{http_code}\n"
+_check_http && HTTP_STATUS="up"
+
+# DHCP probe: attempt if nmap is available
+if command -v nmap &>/dev/null; then
+    DHCP_STATUS="down"
+    _check_dhcp && DHCP_STATUS="up"
+fi
+
+# Overall: up if either check passes
+if [[ "$HTTP_STATUS" == "up" || "$DHCP_STATUS" == "up" ]]; then
+    STATUS="up"
+else
+    STATUS="down"
+fi
+
+# ── Submit ───────────────────────────────────────────────────────────────────
+_submit_vote "$STATUS" "$HTTP_STATUS" "$DHCP_STATUS" "$ACTIVE_IP"

@@ -36,6 +36,8 @@ async def submit_vote(
         timestamp_val=payload.timestamp,
         signature=payload.signature,
         source_ip=source_ip,
+        http_status=payload.http_status,
+        dhcp_status=payload.dhcp_status,
     )
 
     await failover.evaluate_quorum()
@@ -78,6 +80,8 @@ async def failover_status(
                 timestamp=v.timestamp,
                 received_at=v.received_at,
                 verification=v.verification.value,
+                http_status=v.http_status,
+                dhcp_status=v.dhcp_status,
             )
             for name, v in votes.items()
         },

@@ -108,6 +108,9 @@ export interface VoterInfo {
   timestamp: number;
   received_at: number;
   stale?: boolean;
+  verification?: string;  // "verified", "unverified", "failed"
+  http_status?: string;   // "up", "down", or absent
+  dhcp_status?: string;   // "up", "down", or absent
 }
 
 export interface TransitionInfo {

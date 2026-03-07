@@ -26,6 +26,21 @@ function voteLabel(v: VoterInfo): string {
   return v.status === "up" ? "Primary OK" : "Primary Unreachable";
 }
 
+function checkBadge(label: string, status: string | undefined): any {
+  if (!status) return null;
+  const cls = status === "up" ? "check-up" : "check-down";
+  const icon = status === "up" ? "✓" : "✗";
+  return <span class={`check-badge ${cls}`} title={`${label}: ${status}`}>{label} {icon}</span>;
+}
+
+function checkBadges(v: VoterInfo): any {
+  if (!v.received_at || Date.now() / 1000 - v.received_at > 120) return null;
+  const http = checkBadge("HTTP", v.http_status);
+  const dhcp = checkBadge("DHCP", v.dhcp_status);
+  if (!http && !dhcp) return null;
+  return <div class="check-badges">{http}{dhcp}</div>;
+}
+
 function FailoverPage() {
   useEffect(() => { statusPoller.start(); serversPoller.start(); return () => { statusPoller.stop(); serversPoller.stop(); }; }, []);
 
@@ -108,6 +123,7 @@ function FailoverPage() {
           <div key={name} class="card voter-card" onClick={() => { voterDetail.value = { name, ...v }; openModal("voter"); }}>
             <div class="voter-name"><span class={`voter-heartbeat ${voterClass(v)}`} /> {name}</div>
             <span class={`voter-status ${voterClass(v)}`}>{voteLabel(v)}</span>
+            {checkBadges(v)}
             <div class="voter-time">{timeAgo(v.received_at)}</div>
           </div>
         )) : <div class="card empty">No votes yet</div>}
@@ -163,7 +179,36 @@ function FailoverPage() {
               <div class="card voter-detail-item"><div class="config-label">Vote</div><span class={`voter-status ${voterClass(voterDetail.value)}`} style="margin-top:4px">{voteLabel(voterDetail.value)}</span></div>
               <div class="card voter-detail-item"><div class="config-label">Last Seen</div><div class="config-value" style="margin-top:4px">{timeAgo(voterDetail.value.received_at)}</div></div>
               <div class="card voter-detail-item"><div class="config-label">Received At</div><div class="config-value" style="margin-top:4px;font-size:12px">{formatTime(voterDetail.value.received_at)}</div></div>
-              <div class="card voter-detail-item"><div class="config-label">Stale</div><div class="config-value" style="margin-top:4px">{voterDetail.value.stale ? "Yes" : "No"}</div></div>
+              <div class="card voter-detail-item">
+                <div class="config-label">Signature</div>
+                <span class={`check-badge ${voterDetail.value.verification === "verified" ? "check-up" : voterDetail.value.verification === "failed" ? "check-down" : ""}`} style="margin-top:4px">
+                  {voterDetail.value.verification === "verified" ? "✓ Verified" : voterDetail.value.verification === "failed" ? "✗ Failed" : "Unverified"}
+                </span>
+              </div>
+              {(voterDetail.value.http_status || voterDetail.value.dhcp_status) && (
+                <div class="card voter-detail-item" style="grid-column: 1 / -1">
+                  <div class="config-label">Health Checks</div>
+                  <div class="check-badges" style="margin-top:4px">
+                    {checkBadge("HTTP", voterDetail.value.http_status)}
+                    {checkBadge("DHCP", voterDetail.value.dhcp_status)}
+                  </div>
+                  {voterDetail.value.http_status === "down" && voterDetail.value.dhcp_status === "up" && (
+                    <div style="font-size:11px;color:var(--yellow);margin-top:6px">
+                      ⚠️ API unreachable but DHCP is serving — management plane may be down
+                    </div>
+                  )}
+                  {voterDetail.value.http_status === "up" && voterDetail.value.dhcp_status === "down" && (
+                    <div style="font-size:11px;color:var(--yellow);margin-top:6px">
+                      ⚠️ API reachable but DHCP probe failed — service may not be serving leases
+                    </div>
+                  )}
+                  {voterDetail.value.http_status === "down" && voterDetail.value.dhcp_status === "down" && (
+                    <div style="font-size:11px;color:var(--red);margin-top:6px">
+                      Server is unreachable by both HTTP and DHCP broadcast
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </>
         )}

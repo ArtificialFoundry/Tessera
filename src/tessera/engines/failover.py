@@ -62,6 +62,8 @@ class Vote:
     timestamp: float
     received_at: float = field(default_factory=time.time)
     verification: VoteVerification = VoteVerification.UNVERIFIED
+    http_status: str = ""   # "up" or "down"
+    dhcp_status: str = ""   # "up" or "down"
 
 
 @dataclass(slots=True)
@@ -257,6 +259,8 @@ class FailoverEngine(Engine):
         timestamp_val: int,
         signature: str,
         source_ip: str = "",
+        http_status: str = "",
+        dhcp_status: str = "",
     ) -> Vote:
         """Submit and validate a voter's health check.
 
@@ -304,7 +308,13 @@ class FailoverEngine(Engine):
             raise AuthenticationError("Invalid signature")
 
         vote_status = VoteStatus(status.lower())
-        vote = Vote(voter=voter, status=vote_status, timestamp=float(timestamp_val))
+        vote = Vote(
+            voter=voter,
+            status=vote_status,
+            timestamp=float(timestamp_val),
+            http_status=http_status,
+            dhcp_status=dhcp_status,
+        )
         self._votes[voter] = vote
         self._vote_timestamps[voter] = now
         logger.info("Vote received: %s = %s", voter, status)
