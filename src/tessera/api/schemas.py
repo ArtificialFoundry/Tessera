@@ -396,6 +396,31 @@ class PromoteDemoteResponse(BaseModel):
     message: str
 
 
+class AddServerRequest(BaseModel):
+    """Request to add a DHCP server to the pool."""
+
+    name: str
+    url: str
+    role: Literal["active", "candidate", "observer"] = "candidate"
+    priority: int = 10
+    token: str = ""  # Per-server API token (overrides global)
+
+
+class AddServerResponse(BaseModel):
+    """Result of adding a DHCP server."""
+
+    name: str
+    role: str
+    message: str
+
+
+class RemoveServerResponse(BaseModel):
+    """Result of removing a DHCP server."""
+
+    name: str
+    message: str
+
+
 # -- Voter Registration -------------------------------------------------------
 
 

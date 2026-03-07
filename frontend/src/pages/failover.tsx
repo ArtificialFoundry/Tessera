@@ -5,7 +5,7 @@ import { signal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import { api, type FailoverStatus, type VoterInfo, type ServersResponse } from "@/lib/api";
 import { timeAgo, formatTime, poll } from "@/lib/utils";
-import { Shell, Modal, openModal, Paginator } from "@/components/Shell";
+import { Shell, Modal, openModal, Paginator, StaleBanner } from "@/components/Shell";
 import "@/styles/tessera.css";
 
 const status = signal<FailoverStatus | null>(null);
@@ -55,6 +55,7 @@ function FailoverPage() {
 
   return (
     <Shell activeTab="failover">
+      <StaleBanner consecutiveErrors={statusPoller.consecutiveErrors} />
       {/* Server Status Panel */}
       <div class="server-panel fade-up fade-up-1">
         <ServerCard

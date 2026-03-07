@@ -351,7 +351,7 @@ class TechnitiumPool:
         for server in servers:
             client = TechnitiumClient(
                 base_url=server.url,
-                token=token,
+                token=server.token or token,
                 server_name=server.name,
                 ca_cert_file=ca_cert_file,
             )
@@ -364,6 +364,8 @@ class TechnitiumPool:
         """Start all clients in the pool."""
         for client in self._clients.values():
             await client.start()
+        # Run initial health check so status moves from REGISTERED
+        await self.check_health_all()
 
     async def stop_all(self) -> None:
         """Stop all clients in the pool."""
@@ -374,15 +376,19 @@ class TechnitiumPool:
         """Write current server roles to disk atomically."""
         if not self._servers_file:
             return
-        data = [
-            {
+        data = []
+        for name in self._clients:
+            entry: dict[str, Any] = {
                 "name": name,
                 "url": self._clients[name]._base_url,
                 "role": self._roles[name],
                 "priority": self._priorities[name],
             }
-            for name in self._clients
-        ]
+            # Persist per-server token if it differs from the pool default
+            client_token = self._clients[name]._token
+            if client_token and client_token != self._token:
+                entry["token"] = client_token
+            data.append(entry)
         tmp = self._servers_file.with_suffix(".tmp")
         tmp.write_text(json.dumps(data, indent=2))
         tmp.rename(self._servers_file)
@@ -477,12 +483,66 @@ class TechnitiumPool:
         logger.info("Demoted %s to candidate", server_name)
         self._persist_roles()
 
-    def get_server_states(self) -> list[dict[str, Any]]:
-        """Return current state of all servers.
+    async def add_server(
+        self, name: str, url: str, role: str = "candidate",
+        priority: int = 10, token: str = "",
+    ) -> None:
+        """Add a new DHCP server to the pool at runtime.
+
+        Args:
+            name: Server name.
+            url: Technitium API base URL.
+            role: Server role.
+            priority: Failover priority.
+            token: Per-server API token (uses pool default if empty).
+        """
+        if name in self._clients:
+            raise TechnitiumError(f"Server already exists: {name}", status_code=0)
+
+        client = TechnitiumClient(
+            base_url=url,
+            token=token or self._token,
+            server_name=name,
+            ca_cert_file=str(self._ca_cert_file) if self._ca_cert_file else None,
+        )
+        await client.start()
+        await client.check_health()
+
+        self._clients[name] = client
+        self._roles[name] = role
+        self._priorities[name] = priority
+        self._persist_roles()
+        logger.info("Added server %s (%s) as %s", name, url, role)
+
+    async def remove_server(self, name: str) -> None:
+        """Remove a DHCP server from the pool.
+
+        Args:
+            name: Server name to remove.
+
+        Raises:
+            TechnitiumError: If the server is not found or is the active server.
+        """
+        if name not in self._clients:
+            raise TechnitiumError(f"Server not found: {name}", status_code=0)
+        if self._roles.get(name) == "active":
+            raise TechnitiumError(
+                f"Cannot remove active server: {name}. Demote first.", status_code=0
+            )
+        client = self._clients.pop(name)
+        del self._roles[name]
+        del self._priorities[name]
+        await client.stop()
+        self._persist_roles()
+        logger.info("Removed server %s", name)
+
+    async def get_server_states(self) -> list[dict[str, Any]]:
+        """Return current state of all servers (with fresh health checks).
 
         Returns:
             List of dicts with name, url, role, priority, and health info.
         """
+        await self.check_health_all()
         states: list[dict[str, Any]] = []
         for name, client in self._clients.items():
             states.append({

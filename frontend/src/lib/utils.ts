@@ -59,14 +59,18 @@ export function poll<T>(
   fetcher: () => Promise<T>,
   data: ReturnType<typeof signal<T>>,
   intervalMs: number,
-): { start: () => void; stop: () => void } {
+): { start: () => void; stop: () => void; lastUpdated: ReturnType<typeof signal<number>>; consecutiveErrors: ReturnType<typeof signal<number>> } {
   let timer: ReturnType<typeof setInterval> | null = null;
+  const lastUpdated = signal(0);
+  const consecutiveErrors = signal(0);
 
   async function tick(): Promise<void> {
     try {
       data.value = await fetcher();
+      lastUpdated.value = Date.now();
+      consecutiveErrors.value = 0;
     } catch {
-      // Silently ignore — pingOk handles connectivity display
+      consecutiveErrors.value++;
     }
   }
 
@@ -81,6 +85,8 @@ export function poll<T>(
         timer = null;
       }
     },
+    lastUpdated,
+    consecutiveErrors,
   };
 }
 

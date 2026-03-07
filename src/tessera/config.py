@@ -26,12 +26,14 @@ class DhcpServer(BaseModel):
         url: Base URL for the Technitium API.
         role: Server role — active, candidate, or observer.
         priority: Failover priority (lower = higher priority for promotion).
+        token: Per-server API token (overrides the global api_token_file).
     """
 
     name: str
     url: str
     role: Literal["active", "candidate", "observer"] = "candidate"
     priority: int = 0
+    token: str = ""
 
 
 class Settings(BaseSettings):

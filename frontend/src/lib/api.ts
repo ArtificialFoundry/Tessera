@@ -256,6 +256,25 @@ export interface PromoteDemoteResponse {
   message: string;
 }
 
+export interface AddServerRequest {
+  name: string;
+  url: string;
+  role?: string;
+  priority?: number;
+  token?: string;
+}
+
+export interface AddServerResponse {
+  name: string;
+  role: string;
+  message: string;
+}
+
+export interface RemoveServerResponse {
+  name: string;
+  message: string;
+}
+
 // -- Voter types -------------------------------------------------------------
 
 export interface VoterInfoDetail {
@@ -366,6 +385,8 @@ export const api = {
   listServers: () => request<ServersResponse>("/servers"),
   promoteServer: (name: string) => adminRequest<PromoteDemoteResponse>(`/servers/${enc(name)}/promote`, { method: "POST" }),
   demoteServer: (name: string) => adminRequest<PromoteDemoteResponse>(`/servers/${enc(name)}/demote`, { method: "POST" }),
+  addServer: (body: AddServerRequest) => adminRequest<AddServerResponse>("/servers", post(body)),
+  removeServer: (name: string) => adminRequest<RemoveServerResponse>(`/servers/${enc(name)}`, { method: "DELETE" }),
 
   // Voters
   listVoters: () => request<VoterListResponse>("/voters"),

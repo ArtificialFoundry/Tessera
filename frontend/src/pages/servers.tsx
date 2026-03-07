@@ -2,10 +2,10 @@
 
 import { render } from "preact";
 import { signal } from "@preact/signals";
-import { useEffect } from "preact/hooks";
-import { api, isAuthCancelled, type ServersResponse, type ServerInfo } from "@/lib/api";
+import { useEffect, useState } from "preact/hooks";
+import { api, isAuthCancelled, type ServersResponse, type ServerInfo, type AddServerRequest } from "@/lib/api";
 import { toast, poll } from "@/lib/utils";
-import { Shell, showConfirm } from "@/components/Shell";
+import { Shell, Modal, openModal, closeModal, showConfirm, StaleBanner } from "@/components/Shell";
 import "@/styles/tessera.css";
 
 const data = signal<ServersResponse | null>(null);
@@ -20,9 +20,20 @@ function roleColor(role: string): string {
 }
 
 function statusDot(status: string): string {
-  if (status === "healthy" || status === "ok") return "online";
+  if (status === "running" || status === "healthy" || status === "ok") return "online";
   if (status === "degraded") return "warn";
+  if (status === "registered" || status === "starting") return "warn";
   return "offline";
+}
+
+function statusLabel(status: string): string {
+  if (status === "running") return "Healthy";
+  if (status === "degraded") return "Degraded";
+  if (status === "registered") return "Pending";
+  if (status === "starting") return "Starting";
+  if (status === "stopped") return "Stopped";
+  if (status === "failed") return "Failed";
+  return status;
 }
 
 async function promote(name: string) {
@@ -51,6 +62,83 @@ async function demote(name: string) {
   }
 }
 
+async function removeServer(name: string) {
+  busy.value = name;
+  try {
+    const r = await api.removeServer(name);
+    toast(r.message, "success");
+    data.value = await api.listServers();
+  } catch (e: unknown) {
+    if (!isAuthCancelled(e)) toast(String((e as Error).message), "error");
+  } finally {
+    busy.value = null;
+  }
+}
+
+function AddServerForm() {
+  const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
+  const [role, setRole] = useState("candidate");
+  const [priority, setPriority] = useState("10");
+  const [token, setToken] = useState("");
+  const [adding, setAdding] = useState(false);
+
+  async function handleAdd() {
+    if (!name.trim() || !url.trim()) { toast("Name and URL are required", "error"); return; }
+    setAdding(true);
+    try {
+      const body: AddServerRequest = { name: name.trim(), url: url.trim(), role, priority: parseInt(priority) || 10 };
+      if (token.trim()) body.token = token.trim();
+      const r = await api.addServer(body);
+      toast(r.message, "success");
+      data.value = await api.listServers();
+      closeModal();
+    } catch (e: unknown) {
+      if (!isAuthCancelled(e)) toast(String((e as Error).message), "error");
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  return (
+    <Modal name="add-server" width="480px">
+      <h3>Add DHCP Server</h3>
+      <div class="form-field">
+        <label class="form-label">Name</label>
+        <input class="input" placeholder="e.g. u3" value={name} onInput={(e) => setName((e.target as HTMLInputElement).value)} />
+      </div>
+      <div class="form-field">
+        <label class="form-label">URL</label>
+        <input class="input" placeholder="https://192.168.1.3:53443" value={url} onInput={(e) => setUrl((e.target as HTMLInputElement).value)} />
+      </div>
+      <div style="display:flex;gap:12px">
+        <div class="form-field" style="flex:1">
+          <label class="form-label">Role</label>
+          <select class="input" value={role} onChange={(e) => setRole((e.target as HTMLSelectElement).value)}>
+            <option value="candidate">Candidate</option>
+            <option value="active">Active</option>
+            <option value="observer">Observer</option>
+          </select>
+        </div>
+        <div class="form-field" style="flex:1">
+          <label class="form-label">Priority</label>
+          <input class="input" type="number" min="0" value={priority} onInput={(e) => setPriority((e.target as HTMLInputElement).value)} />
+        </div>
+      </div>
+      <div class="form-field">
+        <label class="form-label">API Token <span style="color:var(--text-dim);font-weight:normal">(optional, overrides global)</span></label>
+        <input class="input" type="password" placeholder="Per-server Technitium token" value={token} onInput={(e) => setToken((e.target as HTMLInputElement).value)} />
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+        <button class="btn btn-ghost" onClick={closeModal}>Cancel</button>
+        <button class="btn btn-accent" disabled={adding || !name.trim() || !url.trim()} onClick={handleAdd}>
+          {adding ? "Adding…" : "Add Server"}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 function ServerCard({ s }: { s: ServerInfo }) {
   const isActive = s.role === "active";
   return (
@@ -70,7 +158,7 @@ function ServerCard({ s }: { s: ServerInfo }) {
       <span class="server-role" style={`color:${roleColor(s.role)}`}>{s.role}</span>
       <div class="server-health">
         <span class={`dot ${statusDot(s.status)}`} />
-        <span>{s.status}</span>
+        <span>{statusLabel(s.status)}</span>
       </div>
       {s.message && <div style="font-size:12px;color:var(--text-dim);margin-top:4px">{s.message}</div>}
       <div style="display:flex;gap:8px;margin-top:12px">
@@ -92,6 +180,21 @@ function ServerCard({ s }: { s: ServerInfo }) {
             Demote
           </button>
         )}
+        {s.role !== "active" && (
+          <button
+            class="btn btn-sm btn-ghost"
+            disabled={busy.value === s.name}
+            onClick={() => showConfirm(
+              "Remove Server",
+              `Remove ${s.name} from the pool? This cannot be undone.`,
+              "Remove",
+              () => removeServer(s.name),
+            )}
+            title="Remove from pool"
+          >
+            Remove
+          </button>
+        )}
       </div>
     </div>
   );
@@ -108,6 +211,7 @@ function ServersPage() {
 
   return (
     <Shell activeTab="servers">
+      <StaleBanner consecutiveErrors={poller.consecutiveErrors} />
       <div class="metrics-bar fade-up fade-up-1">
         <div class="card metric">
           <div class="metric-value">{d.servers.length}</div>
@@ -123,7 +227,10 @@ function ServersPage() {
         </div>
       </div>
 
-      <div class="section-title fade-up fade-up-2">🖥 Server Pool</div>
+      <div class="section-title fade-up fade-up-2" style="display:flex;align-items:center;justify-content:space-between">
+        <span>🖥 Server Pool</span>
+        <button class="btn btn-sm btn-accent" onClick={() => openModal("add-server")}>+ Add Server</button>
+      </div>
       {d.servers.length === 0 ? (
         <div class="card empty fade-up fade-up-3">No servers configured</div>
       ) : (
@@ -131,6 +238,7 @@ function ServersPage() {
           {d.servers.map((s) => <ServerCard key={s.name} s={s} />)}
         </div>
       )}
+      <AddServerForm />
     </Shell>
   );
 }

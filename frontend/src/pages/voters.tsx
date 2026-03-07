@@ -14,7 +14,7 @@ import {
   type RegistrationTokenInfo,
 } from "@/lib/api";
 import { toast, timeAgo, formatTime, poll } from "@/lib/utils";
-import { Shell, Modal, openModal, closeModal, showConfirm } from "@/components/Shell";
+import { Shell, Modal, openModal, closeModal, showConfirm, StaleBanner } from "@/components/Shell";
 import "@/styles/tessera.css";
 
 // -- State -------------------------------------------------------------------
@@ -580,6 +580,7 @@ function VotersPage() {
 
   return (
     <Shell activeTab="voters">
+      <StaleBanner consecutiveErrors={poller.consecutiveErrors} />
       <PskBanner />
       <TokenWizard />
 

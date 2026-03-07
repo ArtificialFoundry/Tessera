@@ -60,6 +60,22 @@ function executeConfirm(): void {
   cb?.();
 }
 
+// -- Stale data banner --------------------------------------------------------
+
+interface StaleBannerProps {
+  consecutiveErrors: ReturnType<typeof import("@preact/signals").signal<number>>;
+}
+
+export function StaleBanner({ consecutiveErrors }: StaleBannerProps) {
+  const errs = consecutiveErrors.value ?? 0;
+  if (errs < 3) return null;
+  return (
+    <div class="stale-banner">
+      ⚠️ Data may be stale — API unreachable for {errs} consecutive polls
+    </div>
+  );
+}
+
 // -- Components --------------------------------------------------------------
 
 interface ShellProps {

@@ -7,7 +7,10 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, Depends
 
 from tessera.api.schemas import (
+    AddServerRequest,
+    AddServerResponse,
     PromoteDemoteResponse,
+    RemoveServerResponse,
     ServerInfo,
     ServersResponse,
 )
@@ -24,7 +27,7 @@ async def list_servers(
     pool: TechnitiumPool = Depends(get_technitium_pool),
 ) -> ServersResponse:
     """List all DHCP servers and their current state."""
-    states = pool.get_server_states()
+    states = await pool.get_server_states()
     return ServersResponse(
         servers=[ServerInfo(**s) for s in states],
     )
@@ -63,4 +66,45 @@ async def demote_server(
         name=name,
         new_role="candidate",
         message=f"Server {name} demoted to candidate",
+    )
+
+
+@router.post(
+    "/servers",
+    response_model=AddServerResponse,
+    dependencies=[Depends(require_admin)],
+)
+async def add_server(
+    body: AddServerRequest,
+    pool: TechnitiumPool = Depends(get_technitium_pool),
+) -> AddServerResponse:
+    """Add a DHCP server to the pool."""
+    await pool.add_server(
+        name=body.name,
+        url=body.url,
+        role=body.role,
+        priority=body.priority,
+        token=body.token,
+    )
+    return AddServerResponse(
+        name=body.name,
+        role=body.role,
+        message=f"Server {body.name} added as {body.role}",
+    )
+
+
+@router.delete(
+    "/servers/{name}",
+    response_model=RemoveServerResponse,
+    dependencies=[Depends(require_admin)],
+)
+async def remove_server(
+    name: str,
+    pool: TechnitiumPool = Depends(get_technitium_pool),
+) -> RemoveServerResponse:
+    """Remove a DHCP server from the pool."""
+    await pool.remove_server(name)
+    return RemoveServerResponse(
+        name=name,
+        message=f"Server {name} removed from pool",
     )
