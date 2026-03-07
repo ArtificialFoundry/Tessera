@@ -4,7 +4,7 @@
 
 - Docker with BuildKit
 - Technitium DNS Server instances (2+) with DHCP enabled
-- API token with DHCP management permissions
+- API token from a Technitium user with **DhcpServer** permissions (see [Required Permissions](#technitium-api-permissions))
 - Admin API key for Tessera write operations
 
 ## Container Build
@@ -222,3 +222,54 @@ Admin write operations additionally require the Bearer token (entered in the das
 | `/run/secrets/` | Token, voters.json, servers.json | Read-only mount |
 | `/var/lib/tessera/backups` | Backup JSON files | `999:999` (tessera user) |
 | `/var/lib/tessera/voter-registry.json` | Voter registration metadata | `999:999` |
+
+## Technitium API Permissions
+
+Tessera requires a Technitium API token with **DhcpServer** section permissions.
+The simplest setup is to add the token's user to the built-in **DHCP Administrators** group,
+which grants View + Modify + Delete on all DHCP resources.
+
+### Required Permissions
+
+| Permission | Level | Used By | API Endpoints |
+|---|---|---|---|
+| DhcpServer | **View** | Health checks, scope listing, backup snapshots, scope sync | `/api/dhcp/scopes/list`, `/api/dhcp/scopes/get`, `/api/dhcp/leases/list` |
+| DhcpServer | **Modify** | Failover (enable/disable scopes), scope sync (reservations), backup restore | `/api/dhcp/scopes/set`, `/api/dhcp/scopes/enable`, `/api/dhcp/scopes/disable`, `/api/dhcp/scopes/addReservedLease`, `/api/dhcp/scopes/removeReservedLease`, `/api/dhcp/leases/remove` |
+| DhcpServer | **Delete** | Scope deletion (admin-only, rarely used) | `/api/dhcp/scopes/delete` |
+
+### Minimum Viable Permissions
+
+For a **read-only observer** deployment (no failover, no sync), only **View** is required.
+For full failover functionality, **View + Modify** are mandatory.
+
+### Permission Check at Startup
+
+Tessera validates API token permissions during bootstrap. For each DHCP server in the pool:
+
+1. **View check** — calls `/api/dhcp/scopes/list`
+2. **Modify check** — calls `/api/dhcp/scopes/enable` with a non-existent scope name (the "scope not found" error confirms the token has Modify permission; "Access was denied" indicates it does not)
+
+If either check fails, the server's health badge shows **Failed** (red) with a descriptive
+message like:
+
+> Insufficient permissions: missing DhcpServer Modify. Add token user to 'DHCP Administrators' group.
+
+### Creating a Dedicated API User
+
+```
+1. Technitium Web Console → Administration → Users → Create User
+2. Username: "tessera-svc", set a strong password
+3. Go to Groups → DHCP Administrators → Add Member → tessera-svc
+4. Go to Users → tessera-svc → Create API Token → copy the token
+5. Save the token to /run/secrets/token on the Tessera host (chmod 600)
+```
+
+### Token Security Notes
+
+- Technitium API tokens are passed as **query parameters** (`?token=...`).
+  This is a Technitium design constraint — there is no header-based auth option.
+  Ensure Tessera ↔ Technitium traffic is encrypted (TLS) or on a trusted network
+  to prevent token leakage in access logs or network captures.
+- Set `TESSERA_CA_CERT_FILE` to your CA bundle for TLS verification.
+  If you must disable TLS verification (self-signed certs without a CA), set
+  `TESSERA_SKIP_TLS_VERIFY=true` — but this is logged at ERROR level on every startup.

@@ -167,7 +167,7 @@ class TestTlsVerificationWarning:
     """TLS disabled warning logged once per URL."""
 
     @pytest.mark.asyncio
-    async def test_warns_when_tls_verification_disabled(
+    async def test_no_warning_when_tls_enabled_by_default(
         self,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
@@ -175,7 +175,19 @@ class TestTlsVerificationWarning:
         c = TechnitiumClient("https://tls-test:53443", "tok")
         with caplog.at_level(logging.WARNING):
             await c.start()
-        assert any("TLS verification disabled" in r.message for r in caplog.records)
+        assert not any("TLS verification" in r.message for r in caplog.records)
+        await c.stop()
+
+    @pytest.mark.asyncio
+    async def test_warns_when_skip_tls_verify(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        TechnitiumClient._tls_warned_urls.clear()
+        c = TechnitiumClient("https://tls-skip:53443", "tok", skip_tls_verify=True)
+        with caplog.at_level(logging.ERROR):
+            await c.start()
+        assert any("TLS verification DISABLED" in r.message for r in caplog.records)
         await c.stop()
 
     @pytest.mark.asyncio
@@ -185,12 +197,12 @@ class TestTlsVerificationWarning:
     ) -> None:
         TechnitiumClient._tls_warned_urls.clear()
         url = "https://tls-dedup:53443"
-        c1 = TechnitiumClient(url, "tok")
-        c2 = TechnitiumClient(url, "tok")
-        with caplog.at_level(logging.WARNING):
+        c1 = TechnitiumClient(url, "tok", skip_tls_verify=True)
+        c2 = TechnitiumClient(url, "tok", skip_tls_verify=True)
+        with caplog.at_level(logging.ERROR):
             await c1.start()
             await c2.start()
-        tls = [r for r in caplog.records if "TLS verification disabled" in r.message]
+        tls = [r for r in caplog.records if "TLS verification DISABLED" in r.message]
         assert len(tls) == 1
         await c1.stop()
         await c2.stop()

@@ -69,6 +69,7 @@ class TechnitiumClient(Engine):
         *,
         server_name: str = "",
         ca_cert_file: str = "",
+        skip_tls_verify: bool = False,
     ) -> None:
         super().__init__()
         self._base_url = base_url.rstrip("/")
@@ -76,17 +77,20 @@ class TechnitiumClient(Engine):
         self._client: httpx.AsyncClient | None = None
         self.server_name = server_name
         self._ca_cert_file = ca_cert_file
+        self._skip_tls_verify = skip_tls_verify
 
     async def start(self) -> None:
         """Initialize the HTTP client."""
-        verify: bool | str = False
+        verify: bool | str = True
         if self._ca_cert_file:
             verify = self._ca_cert_file
+        elif self._skip_tls_verify:
+            verify = False
         if verify is False and self._base_url not in TechnitiumClient._tls_warned_urls:
             TechnitiumClient._tls_warned_urls.add(self._base_url)
-            logger.warning(
-                "TLS verification disabled for %s "
-                "— connections are vulnerable to MITM attacks",
+            logger.error(
+                "TLS verification DISABLED for %s — set TESSERA_CA_CERT_FILE "
+                "or TESSERA_SKIP_TLS_VERIFY=false to secure this connection",
                 self._base_url,
             )
         self._client = httpx.AsyncClient(
@@ -109,10 +113,66 @@ class TechnitiumClient(Engine):
             await self._request("GET", "/api/dhcp/scopes/list")
             self.health.status = EngineStatus.RUNNING
             self.health.message = "Connected"
+        except TechnitiumError as exc:
+            if "Access was denied" in str(exc):
+                self.health.status = EngineStatus.FAILED
+                self.health.message = "Permission denied: token lacks DhcpServer View"
+            else:
+                self.health.status = EngineStatus.DEGRADED
+                self.health.message = str(exc)
         except Exception as exc:
             self.health.status = EngineStatus.DEGRADED
             self.health.message = str(exc)
         return self.health
+
+    async def check_permissions(self) -> dict[str, bool]:
+        """Check which Technitium DHCP permissions the token has.
+
+        Tests read (View) and write (Modify) access by calling
+        endpoints that require each permission level.
+
+        Returns:
+            Dict with ``"view"`` and ``"modify"`` boolean keys.
+        """
+        perms: dict[str, bool] = {"view": False, "modify": False}
+
+        # Test View: list scopes
+        try:
+            await self._request("GET", "/api/dhcp/scopes/list")
+            perms["view"] = True
+        except TechnitiumError as exc:
+            if "Access was denied" not in str(exc):
+                # Connectivity issue, not permission
+                perms["view"] = True
+            logger.warning(
+                "Permission check (View) for %s: %s",
+                self.server_name or self._base_url,
+                exc,
+            )
+
+        # Test Modify: enable a non-existent scope (will fail with
+        # "scope not found" if permitted, or "Access denied" if not)
+        try:
+            await self._request(
+                "POST",
+                "/api/dhcp/scopes/enable",
+                data={"name": "__tessera_permission_probe__"},
+            )
+            # Shouldn't succeed, but if it does, we have Modify
+            perms["modify"] = True
+        except TechnitiumError as exc:
+            msg = str(exc)
+            if "Access was denied" in msg:
+                logger.warning(
+                    "Permission check (Modify) for %s: %s",
+                    self.server_name or self._base_url,
+                    exc,
+                )
+            else:
+                # Any other error means we got past the permission gate
+                perms["modify"] = True
+
+        return perms
 
     @property
     def client(self) -> httpx.AsyncClient:
@@ -324,6 +384,7 @@ class TechnitiumPool:
         self._roles: dict[str, str] = {}  # name -> role
         self._priorities: dict[str, int] = {}  # name -> priority
         self._servers_file = servers_file
+        self._skip_tls_verify = False
 
     @classmethod
     def from_servers(
@@ -332,6 +393,7 @@ class TechnitiumPool:
         token: str,
         *,
         ca_cert_file: str = "",
+        skip_tls_verify: bool = False,
         servers_file: Path | None = None,
     ) -> TechnitiumPool:
         """Create a pool from a list of DhcpServer configs.
@@ -340,12 +402,18 @@ class TechnitiumPool:
             servers: Server configurations.
             token: Technitium API token.
             ca_cert_file: Optional CA certificate bundle path.
+            skip_tls_verify: Disable TLS verification (insecure).
             servers_file: Optional file for persisting role changes.
 
         Returns:
             A configured TechnitiumPool.
         """
-        pool = cls(token=token, ca_cert_file=ca_cert_file, servers_file=servers_file)
+        pool = cls(
+            token=token,
+            ca_cert_file=ca_cert_file,
+            servers_file=servers_file,
+        )
+        pool._skip_tls_verify = skip_tls_verify
 
         # Load persisted roles if available
         persisted_roles: dict[str, str] = {}
@@ -363,6 +431,7 @@ class TechnitiumPool:
                 token=server.token or token,
                 server_name=server.name,
                 ca_cert_file=ca_cert_file,
+                skip_tls_verify=skip_tls_verify,
             )
             pool._clients[server.name] = client
             pool._roles[server.name] = persisted_roles.get(server.name, server.role)
@@ -370,11 +439,42 @@ class TechnitiumPool:
         return pool
 
     async def start_all(self) -> None:
-        """Start all clients in the pool."""
+        """Start all clients and verify permissions."""
         for client in self._clients.values():
             await client.start()
         # Run initial health check so status moves from REGISTERED
         await self.check_health_all()
+        # Check permissions on each server
+        await self._check_permissions_all()
+
+    async def _check_permissions_all(self) -> None:
+        """Verify API token permissions on all servers.
+
+        Sets health to FAILED with a descriptive message when the token
+        lacks required DhcpServer View or Modify permissions.
+        """
+        for name, client in self._clients.items():
+            try:
+                perms = await client.check_permissions()
+                missing = [k for k, v in perms.items() if not v]
+                if missing:
+                    client.health.status = EngineStatus.FAILED
+                    client.health.message = (
+                        f"Insufficient permissions: missing DhcpServer "
+                        f"{', '.join(p.title() for p in missing)}. "
+                        f"Add token user to 'DHCP Administrators' group."
+                    )
+                    logger.error(
+                        "Server %s: %s",
+                        name,
+                        client.health.message,
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "Permission check failed for %s: %s",
+                    name,
+                    exc,
+                )
 
     async def stop_all(self) -> None:
         """Stop all clients in the pool."""
@@ -511,6 +611,7 @@ class TechnitiumPool:
             token=token or self._token,
             server_name=name,
             ca_cert_file=str(self._ca_cert_file) if self._ca_cert_file else "",
+            skip_tls_verify=self._skip_tls_verify,
         )
         await client.start()
         await client.check_health()
@@ -612,6 +713,7 @@ class TechnitiumPool:
                     token=self._token,
                     server_name=server.name,
                     ca_cert_file=self._ca_cert_file,
+                    skip_tls_verify=self._skip_tls_verify,
                 )
                 self._clients[server.name] = client
                 self._roles[server.name] = server.role

@@ -51,8 +51,8 @@ function FailoverPage() {
   // Map servers to primary (lowest priority / active) and standby
   const activeSrv = srvList.find((sv) => sv.role === "active");
   const candidateSrv = srvList.find((sv) => sv.role === "candidate");
-  const primaryServer = { name: activeSrv?.name ?? "primary", host: activeSrv?.url?.replace(/^https?:\/\//, "").replace(/:\d+$/, "") ?? "—", status: activeSrv?.status ?? "unknown" };
-  const standbyServer = { name: candidateSrv?.name ?? "standby", host: candidateSrv?.url?.replace(/^https?:\/\//, "").replace(/:\d+$/, "") ?? "—", status: candidateSrv?.status ?? "unknown" };
+  const primaryServer = { name: activeSrv?.name ?? "primary", host: activeSrv?.url?.replace(/^https?:\/\//, "").replace(/:\d+$/, "") ?? "—", status: activeSrv?.status ?? "unknown", message: activeSrv?.message ?? "" };
+  const standbyServer = { name: candidateSrv?.name ?? "standby", host: candidateSrv?.url?.replace(/^https?:\/\//, "").replace(/:\d+$/, "") ?? "—", status: candidateSrv?.status ?? "unknown", message: candidateSrv?.message ?? "" };
 
   const isFailoverActive = s.state?.toLowerCase() === "active";
   const voters = s.voters ?? {};
@@ -76,7 +76,7 @@ function FailoverPage() {
         <ServerCard
           name={primaryServer.name} host={primaryServer.host} role="primary"
           isActive={isActive("primary")} isFailover={isFailoverActive}
-          health={primaryHealth}
+          health={primaryHealth} message={primaryServer.message}
         />
         <div class="server-arrow">
           <div class="arrow-label">failover</div>
@@ -86,7 +86,7 @@ function FailoverPage() {
         <ServerCard
           name={standbyServer.name} host={standbyServer.host} role="standby"
           isActive={isActive("standby")} isFailover={isFailoverActive}
-          health={standbyHealth}
+          health={standbyHealth} message={standbyServer.message}
         />
       </div>
 
@@ -226,9 +226,10 @@ interface ServerCardProps {
   isActive: boolean;
   isFailover: boolean;
   health: string;
+  message?: string;
 }
 
-function ServerCard({ name, host, role, isActive, isFailover, health }: ServerCardProps) {
+function ServerCard({ name, host, role, isActive, isFailover, health, message }: ServerCardProps) {
   const cardClass = [
     "card server-card",
     isActive && "active-server",
@@ -255,6 +256,9 @@ function ServerCard({ name, host, role, isActive, isFailover, health }: ServerCa
         <span class={`dot ${health}`} />
         <span>{health === "healthy" ? "Healthy" : health === "unhealthy" ? "Unhealthy" : "Checking…"}</span>
       </div>
+      {health === "unhealthy" && message && (
+        <div class="server-error-msg">{message}</div>
+      )}
     </div>
   );
 }

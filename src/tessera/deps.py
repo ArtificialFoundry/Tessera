@@ -63,6 +63,7 @@ def get_engine_registry() -> EngineRegistry:
         servers,
         token,
         ca_cert_file=settings.ca_cert_file,
+        skip_tls_verify=settings.skip_tls_verify,
     )
 
     # Register the active client as the "technitium" engine

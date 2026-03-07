@@ -114,6 +114,7 @@ class Settings(BaseSettings):
 
     # CA certificate trust
     ca_cert_file: str = ""
+    skip_tls_verify: bool = False
 
     @property
     def voter_list(self) -> list[str]:

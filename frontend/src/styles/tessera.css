@@ -104,6 +104,7 @@ body {
 .server-health .dot.healthy { background: var(--green); box-shadow: 0 0 10px var(--green-glow); }
 .server-health .dot.unhealthy { background: var(--red); box-shadow: 0 0 10px var(--red-glow); }
 .server-health .dot.unknown { background: var(--yellow); }
+.server-error-msg { margin-top: 6px; font-size: 11px; color: var(--red); line-height: 1.4; word-break: break-word; }
 .active-badge { position: absolute; top: 12px; right: 12px; display: flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; white-space: nowrap; z-index: 1; }
 .active-badge.serving { background: var(--green-glow); color: var(--green); }
 .active-badge.serving-failover { background: var(--red-glow); color: var(--red); }
