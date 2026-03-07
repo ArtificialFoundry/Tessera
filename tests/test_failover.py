@@ -137,3 +137,14 @@ class TestFailoverEngine:
         config = failover_engine.config
         assert config["quorum"] == 2
         assert config["failover_rounds"] == 2
+
+
+class TestVoteSignatureVerification:
+    """HMAC signature verification uses constant-time comparison."""
+
+    def test_signature_comparison_uses_constant_time_equality(self) -> None:
+        """verify_vote_signature uses hmac.compare_digest."""
+        import inspect
+
+        source = inspect.getsource(verify_vote_signature)
+        assert "hmac.compare_digest" in source

@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any
+import json
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from tessera.engines.technitium import TechnitiumClient
+from tessera.engines.technitium import (
+    DhcpClientProtocol,
+    TechnitiumClient,
+    TechnitiumPool,
+)
 from tessera.exceptions import TechnitiumError
 
 
@@ -94,3 +99,56 @@ class TestTechnitiumClient:
                 assert len(leases) == 1
         finally:
             await technitium_client.stop()
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+
+class TestDhcpClientProtocol:
+    """TechnitiumClient satisfies the typed DHCP protocol."""
+
+    def test_client_implements_dhcp_protocol(self) -> None:
+        """TechnitiumClient satisfies DhcpClientProtocol."""
+        client = TechnitiumClient(
+            base_url="https://test", token="tok",
+        )
+        assert isinstance(client, DhcpClientProtocol)
+
+
+class TestPoolRolePersistence:
+    """Persisting pool role changes to servers file."""
+
+    def test_promote_writes_updated_roles_to_servers_file(self, tmp_path: Path) -> None:
+        """Promote writes roles to servers file."""
+        sf = tmp_path / "servers.json"
+        pool = TechnitiumPool(token="tok", servers_file=sf)
+        c1 = TechnitiumClient(
+            base_url="https://s1", token="tok", server_name="s1",
+        )
+        c2 = TechnitiumClient(
+            base_url="https://s2", token="tok", server_name="s2",
+        )
+        pool._clients = {"s1": c1, "s2": c2}
+        pool._roles = {"s1": "active", "s2": "candidate"}
+        pool._priorities = {"s1": 0, "s2": 1}
+        pool.promote("s2")
+        assert sf.is_file()
+        data = json.loads(sf.read_text())
+        roles = {s["name"]: s["role"] for s in data}
+        assert roles["s2"] == "active"
+        assert roles["s1"] == "candidate"
+
+    def test_demote_writes_updated_role_to_servers_file(self, tmp_path: Path) -> None:
+        """Demote writes roles to servers file."""
+        sf = tmp_path / "servers.json"
+        pool = TechnitiumPool(token="tok", servers_file=sf)
+        c1 = TechnitiumClient(
+            base_url="https://s1", token="tok", server_name="s1",
+        )
+        pool._clients = {"s1": c1}
+        pool._roles = {"s1": "active"}
+        pool._priorities = {"s1": 0}
+        pool.demote("s1")
+        data = json.loads(sf.read_text())
+        assert data[0]["role"] == "candidate"

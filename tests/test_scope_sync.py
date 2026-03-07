@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from tessera.engines.scope_sync import ScopeSyncEngine
 from tessera.exceptions import ScopeSyncError
+from tessera.registry import EngineStatus
 
 
 @pytest.fixture
@@ -111,3 +112,76 @@ class TestScopeSyncEngine:
         metrics = engine.get_metrics()
         assert "sync_count" in metrics
         assert "sync_interval" in metrics
+
+
+class TestSyncFanOutFailure:
+    """Partial fan-out failure handling."""
+
+    async def test_failed_candidate_recorded_in_sync_status(self) -> None:
+        """One candidate fails → per-candidate status tracked."""
+        active = AsyncMock()
+        active.list_scopes = AsyncMock(
+            return_value=[{"name": "LAN"}],
+        )
+        active.get_scope = AsyncMock(return_value={
+            "reservedLeases": [
+                {
+                    "hardwareAddress": "AA:BB:CC:DD:EE:01",
+                    "address": "10.0.0.10",
+                    "hostName": "srv1",
+                    "comments": "",
+                },
+            ],
+        })
+
+        good = AsyncMock()
+        good.server_name = "good"
+        good.get_scope = AsyncMock(
+            return_value={"reservedLeases": []},
+        )
+
+        bad = AsyncMock()
+        bad.server_name = "bad"
+        bad.get_scope = AsyncMock(
+            return_value={"reservedLeases": []},
+        )
+        bad.add_reservation = AsyncMock(
+            side_effect=Exception("connection refused"),
+        )
+
+        engine = ScopeSyncEngine(sync_interval=60)
+        engine._pool = MagicMock()
+        engine._pool.get_active.return_value = active
+        engine._pool.get_candidates.return_value = [good, bad]
+
+        result = await engine.sync_once()
+        cr = result["candidate_results"]
+        assert cr["good"] == "success"
+        assert cr["bad"].startswith("error:")
+        assert engine.sync_status["bad"].startswith("error:")
+        assert engine.health.status == EngineStatus.DEGRADED
+
+    async def test_all_candidates_succeed_clears_error_state(self) -> None:
+        """All candidates succeed → no error state."""
+        active = AsyncMock()
+        active.list_scopes = AsyncMock(
+            return_value=[{"name": "LAN"}],
+        )
+        active.get_scope = AsyncMock(
+            return_value={"reservedLeases": []},
+        )
+
+        candidate = AsyncMock()
+        candidate.server_name = "c1"
+        candidate.get_scope = AsyncMock(
+            return_value={"reservedLeases": []},
+        )
+
+        engine = ScopeSyncEngine(sync_interval=60)
+        engine._pool = MagicMock()
+        engine._pool.get_active.return_value = active
+        engine._pool.get_candidates.return_value = [candidate]
+
+        result = await engine.sync_once()
+        assert result["candidate_results"]["c1"] == "success"
+        assert engine._last_error == ""

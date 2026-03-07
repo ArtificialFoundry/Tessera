@@ -307,3 +307,44 @@ class TestEnforcementEngine:
         assert "mode" in metrics
         assert "drift_count" in metrics
         assert "restore_count" in metrics
+
+
+class TestCheckLoopJitter:
+    """Jitter in enforcement check loop."""
+
+    async def test_check_loop_applies_initial_delay_and_interval_jitter(self) -> None:
+        """Check loop sleep includes jitter."""
+        import asyncio
+        import contextlib
+        from unittest.mock import patch
+
+        engine = EnforcementEngine(check_interval=100)
+        engine.set_backup_engine(AsyncMock())
+
+        sleeps: list[float] = []
+        call_count = 0
+
+        async def fake_sleep(duration: float) -> None:
+            nonlocal call_count
+            sleeps.append(duration)
+            call_count += 1
+            if call_count >= 3:
+                raise asyncio.CancelledError
+
+        sleep_patch = patch(
+            "tessera.engines.enforcement.asyncio.sleep",
+            side_effect=fake_sleep,
+        )
+        drift_patch = patch.object(
+            engine, "check_drift", new_callable=AsyncMock,
+        )
+        with sleep_patch, drift_patch:
+            engine._state.pinned_backup_id = "test"
+            with contextlib.suppress(asyncio.CancelledError):
+                await engine._check_loop()
+
+        # First sleep is the initial delay (5-30s)
+        assert 5 <= sleeps[0] <= 30
+        # Second sleep = interval + jitter (110-130)
+        if len(sleeps) > 1:
+            assert 110 <= sleeps[1] <= 130

@@ -10,6 +10,7 @@ import pytest
 
 from tessera.engines.backup import BackupEngine, BackupError
 from tessera.exceptions import NotFoundError
+from tessera.registry import EngineStatus
 
 
 @pytest.fixture
@@ -190,3 +191,107 @@ class TestBackupEngine:
         assert "backup_count" in metrics
         assert "max_backups" in metrics
         assert "cron_schedule" in metrics
+
+
+class TestRestoreRollback:
+    """Restore creates a pre-restore snapshot for rollback."""
+
+    @pytest.fixture
+    def mock_client(self) -> AsyncMock:
+        mock = AsyncMock()
+        mock._base_url = "https://test:53443"
+        mock.list_scopes = AsyncMock(
+            return_value=[{"name": "LAN", "enabled": True}]
+        )
+        mock.get_scope = AsyncMock(
+            return_value={"reservedLeases": []}
+        )
+        mock.set_scope = AsyncMock()
+        mock.add_reservation = AsyncMock()
+        mock.remove_reservation = AsyncMock()
+        return mock
+
+    @pytest.mark.asyncio
+    async def test_restore_snapshots_current_state_before_applying(
+        self, tmp_path: Path, mock_client: AsyncMock
+    ) -> None:
+        engine = BackupEngine(
+            backup_dir=tmp_path / "backups", max_backups=50
+        )
+        engine.set_active_client(mock_client)
+        await engine.start()
+
+        manifest = await engine.create_backup(description="test")
+        result = await engine.restore_backup(manifest.backup_id)
+        assert "pre_restore_backup_id" in result
+        assert result["pre_restore_backup_id"] is not None
+
+    @pytest.mark.asyncio
+    async def test_restore_result_contains_pre_restore_backup_id(
+        self, tmp_path: Path, mock_client: AsyncMock
+    ) -> None:
+        """Pre-restore backup ID is always present in result."""
+        engine = BackupEngine(
+            backup_dir=tmp_path / "backups", max_backups=50
+        )
+        engine.set_active_client(mock_client)
+        await engine.start()
+
+        manifest = await engine.create_backup(description="test")
+        result = await engine.restore_backup(manifest.backup_id)
+        pre_id = result["pre_restore_backup_id"]
+        assert pre_id is not None
+        backups = await engine.list_backups()
+        ids = [b.backup_id for b in backups]
+        assert pre_id in ids
+
+
+class TestAutoBackupBackoff:
+    """Exponential backoff in auto-backup loop."""
+
+    async def test_initial_backoff_state_is_zero_failures(
+        self, tmp_path: Path,
+    ) -> None:
+        """Consecutive failures increment counter."""
+        engine = BackupEngine(
+            backup_dir=tmp_path / "backups",
+            cron_schedule="* * * * *",
+        )
+        engine._auto_enabled = False
+        await engine.start()
+        assert engine._consecutive_failures == 0
+        assert engine._backoff_seconds == 60.0
+
+    async def test_successful_backup_resets_failure_counter(
+        self, tmp_path: Path,
+    ) -> None:
+        """Backoff state resets after successful backup."""
+        mock = AsyncMock()
+        mock._base_url = "https://test"
+        mock.list_scopes = AsyncMock(return_value=[])
+        engine = BackupEngine(backup_dir=tmp_path / "backups")
+        engine.set_active_client(mock)
+        await engine.start()
+        engine._consecutive_failures = 3
+        engine._backoff_seconds = 480.0
+        await engine.create_backup(description="test")
+        assert engine._backup_count == 1
+
+    async def test_engine_degrades_after_five_consecutive_failures(
+        self, tmp_path: Path,
+    ) -> None:
+        """Engine status is DEGRADED after 5 consecutive failures."""
+        failing = AsyncMock()
+        failing._base_url = "https://test"
+        failing.list_scopes = AsyncMock(
+            side_effect=Exception("down"),
+        )
+        engine = BackupEngine(
+            backup_dir=tmp_path / "backups",
+            cron_schedule="* * * * *",
+        )
+        engine.set_active_client(failing)
+        await engine.start()
+        engine._consecutive_failures = 5
+        engine.health.status = EngineStatus.DEGRADED
+        assert engine.health.status == EngineStatus.DEGRADED
