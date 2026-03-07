@@ -9,7 +9,13 @@
 #   curl -sL https://tessera.example.com/voter/install.sh | sudo bash -s -- \
 #     --name "$(hostname -s)" \
 #     --tessera-url http://tessera-server:8780 \
-#     --primary-ip 192.0.2.1
+#     --active-ip 192.0.2.1
+#
+#   Auto-register with one-time token:
+#     sudo ./tessera-install-voter.sh \
+#       --tessera-url http://tessera-server:8780 \
+#       --active-ip 192.0.2.1 \
+#       --auto-register --registration-token abc123...
 #
 #   Or interactively:
 #     sudo ./tessera-install-voter.sh
@@ -36,6 +42,13 @@ UNINSTALL=false
 DRY_RUN=false
 QUIET=false
 
+# Registration flags
+AUTO_REGISTER=false
+REGISTRATION_TOKEN=""
+USE_STATIC_TOKEN=false
+WAIT_APPROVAL=300  # seconds
+ROTATE_KEY=false
+
 # ── Colors ───────────────────────────────────────────────────────────────────
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -58,8 +71,8 @@ Usage: tessera-install-voter.sh [OPTIONS]
 Options:
   --name NAME              Voter name (default: hostname -s)
   --tessera-url URL        Tessera API base URL (required)
-  --primary-ip IP          Primary DHCP server IP (required)
-  --primary-port PORT      Technitium API port (default: 53443)
+  --active-ip IP           Active DHCP server IP (required)
+  --active-port PORT       Technitium API port (default: 53443)
   --psk PSK                Pre-shared key (default: auto-generate)
   --check-method METHOD    dhcp|http|both (default: dhcp)
   --check-timeout SEC      Health check timeout (default: 5)
@@ -69,21 +82,33 @@ Options:
   --uninstall              Remove voter agent completely
   --dry-run                Show what would be done without doing it
   --quiet                  Suppress informational output
+
+Registration:
+  --auto-register          Register with Tessera using a one-time token
+  --registration-token TOK One-time or static registration token
+  --use-static-token       Use the static registration token (bootstrap)
+  --wait-approval SEC      Wait for approval (default: 300s, 0=don't wait)
+  --rotate-key             Rotate PSK for an existing voter
+
   --help                   Show this help
 
 Examples:
   # Minimal — auto-detects hostname, generates PSK
   sudo ./tessera-install-voter.sh \
     --tessera-url http://192.0.2.10:8780 \
-    --primary-ip 192.0.2.1
+    --active-ip 192.0.2.1
 
-  # Full control
+  # Auto-register with one-time token
   sudo ./tessera-install-voter.sh \
-    --name voter-2    \
     --tessera-url http://192.0.2.10:8780 \
-    --primary-ip 192.0.2.1 \
-    --psk "$(openssl rand -hex 32)" \
-    --check-method both
+    --active-ip 192.0.2.1 \
+    --auto-register --registration-token abc123...
+
+  # Rotate PSK for existing voter
+  sudo ./tessera-install-voter.sh \
+    --tessera-url http://192.0.2.10:8780 \
+    --active-ip 192.0.2.1 \
+    --rotate-key
 
   # Uninstall
   sudo ./tessera-install-voter.sh --uninstall
@@ -95,21 +120,28 @@ EOF
 parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --name)           VOTER_NAME="$2"; shift 2 ;;
-            --tessera-url)    TESSERA_URL="$2"; shift 2 ;;
-            --primary-ip)     PRIMARY_IP="$2"; shift 2 ;;
-            --primary-port)   PRIMARY_PORT="$2"; shift 2 ;;
-            --psk)            VOTER_PSK="$2"; shift 2 ;;
-            --check-method)   CHECK_METHOD="$2"; shift 2 ;;
-            --check-timeout)  CHECK_TIMEOUT="$2"; shift 2 ;;
-            --interface)      DHCP_INTERFACE="$2"; shift 2 ;;
-            --skip-firewall)  SKIP_FIREWALL=true; shift ;;
-            --skip-nmap)      SKIP_NMAP=true; shift ;;
-            --uninstall)      UNINSTALL=true; shift ;;
-            --dry-run)        DRY_RUN=true; shift ;;
-            --quiet)          QUIET=true; shift ;;
-            --help|-h)        usage ;;
-            *)                _die "Unknown option: $1 (try --help)" ;;
+            --name)               VOTER_NAME="$2"; shift 2 ;;
+            --tessera-url)        TESSERA_URL="$2"; shift 2 ;;
+            --active-ip)          PRIMARY_IP="$2"; shift 2 ;;
+            --primary-ip)         PRIMARY_IP="$2"; _warn "--primary-ip is deprecated, use --active-ip"; shift 2 ;;
+            --active-port)        PRIMARY_PORT="$2"; shift 2 ;;
+            --primary-port)       PRIMARY_PORT="$2"; _warn "--primary-port is deprecated, use --active-port"; shift 2 ;;
+            --psk)                VOTER_PSK="$2"; shift 2 ;;
+            --check-method)       CHECK_METHOD="$2"; shift 2 ;;
+            --check-timeout)      CHECK_TIMEOUT="$2"; shift 2 ;;
+            --interface)          DHCP_INTERFACE="$2"; shift 2 ;;
+            --skip-firewall)      SKIP_FIREWALL=true; shift ;;
+            --skip-nmap)          SKIP_NMAP=true; shift ;;
+            --uninstall)          UNINSTALL=true; shift ;;
+            --dry-run)            DRY_RUN=true; shift ;;
+            --quiet)              QUIET=true; shift ;;
+            --auto-register)      AUTO_REGISTER=true; shift ;;
+            --registration-token) REGISTRATION_TOKEN="$2"; shift 2 ;;
+            --use-static-token)   USE_STATIC_TOKEN=true; shift ;;
+            --wait-approval)      WAIT_APPROVAL="$2"; shift 2 ;;
+            --rotate-key)         ROTATE_KEY=true; shift ;;
+            --help|-h)            usage ;;
+            *)                    _die "Unknown option: $1 (try --help)" ;;
         esac
     done
 }
@@ -247,8 +279,134 @@ install_nmap() {
     fi
 }
 
+# ── Auto-register with Tessera ───────────────────────────────────────────────
+do_auto_register() {
+    if [[ -z "$REGISTRATION_TOKEN" ]]; then
+        _die "--registration-token is required with --auto-register"
+    fi
+    if [[ -z "$TESSERA_URL" ]]; then
+        _die "--tessera-url is required with --auto-register"
+    fi
+
+    _info "Registering voter '$VOTER_NAME' with Tessera..."
+
+    local response http_code body
+    response="$(curl -sk --max-time 10 -w '\n%{http_code}' \
+        -X POST "$TESSERA_URL/api/v1/voters/register" \
+        -H "Content-Type: application/json" \
+        -d "{\"name\": \"$VOTER_NAME\", \"token\": \"$REGISTRATION_TOKEN\"}" \
+        2>/dev/null)" || _die "Failed to reach Tessera at $TESSERA_URL"
+
+    http_code="$(echo "$response" | tail -1)"
+    body="$(echo "$response" | sed '$d')"
+
+    if [[ "$http_code" == "401" ]]; then
+        _die "Registration token rejected (invalid, expired, or already used)"
+    elif [[ "$http_code" == "409" ]]; then
+        _die "Voter '$VOTER_NAME' is already registered"
+    elif [[ "$http_code" != "200" ]]; then
+        _die "Registration failed (HTTP $http_code): $body"
+    fi
+
+    local status psk
+    status="$(echo "$body" | grep -o '"status":"[^"]*"' | cut -d'"' -f4)"
+    psk="$(echo "$body" | grep -o '"psk":"[^"]*"' | cut -d'"' -f4)"
+
+    if [[ "$status" == "active" && -n "$psk" ]]; then
+        VOTER_PSK="$psk"
+        _log "Registration approved — PSK received"
+        return
+    fi
+
+    if [[ "$status" == "pending" ]]; then
+        _info "Registration pending approval..."
+        if [[ "$WAIT_APPROVAL" -le 0 ]]; then
+            _warn "Not waiting for approval (--wait-approval 0)"
+            _warn "Run this installer again after approval"
+            exit 0
+        fi
+
+        _info "Waiting up to ${WAIT_APPROVAL}s for approval..."
+        local elapsed=0
+        local interval=5
+        while [[ $elapsed -lt $WAIT_APPROVAL ]]; do
+            sleep "$interval"
+            elapsed=$((elapsed + interval))
+
+            # Poll voter status
+            local poll_resp poll_code poll_body
+            poll_resp="$(curl -sk --max-time 5 -w '\n%{http_code}' \
+                "$TESSERA_URL/api/v1/voters" 2>/dev/null)" || continue
+            poll_code="$(echo "$poll_resp" | tail -1)"
+            poll_body="$(echo "$poll_resp" | sed '$d')"
+
+            if [[ "$poll_code" == "200" ]]; then
+                # Check if our voter is now active with a PSK
+                local voter_status
+                voter_status="$(echo "$poll_body" | grep -o "\"name\":\"$VOTER_NAME\"[^}]*" | grep -o '"status":"[^"]*"' | cut -d'"' -f4)"
+                if [[ "$voter_status" == "active" ]]; then
+                    # Fetch PSK (need to re-register or admin gave PSK out-of-band)
+                    _log "Voter approved after ${elapsed}s"
+                    _warn "PSK was provided during approval — check Tessera admin for your PSK"
+                    _warn "Set it with: --psk <your-psk>"
+                    exit 0
+                fi
+            fi
+
+            _info "Still pending... (${elapsed}/${WAIT_APPROVAL}s)"
+        done
+
+        _die "Approval timeout after ${WAIT_APPROVAL}s. Contact your Tessera admin."
+    fi
+
+    _die "Unexpected registration status: $status"
+}
+
+# ── PSK rotation ─────────────────────────────────────────────────────────────
+do_rotate_key() {
+    if [[ -z "$TESSERA_URL" ]]; then
+        _die "--tessera-url is required with --rotate-key"
+    fi
+    if [[ -z "$VOTER_NAME" ]]; then
+        _die "Voter name required for key rotation"
+    fi
+
+    _info "Rotating PSK for voter '$VOTER_NAME'..."
+
+    local response http_code body
+    response="$(curl -sk --max-time 10 -w '\n%{http_code}' \
+        -X POST "$TESSERA_URL/api/v1/voters/$VOTER_NAME/rotate-key" \
+        -H "Content-Type: application/json" \
+        2>/dev/null)" || _die "Failed to reach Tessera at $TESSERA_URL"
+
+    http_code="$(echo "$response" | tail -1)"
+    body="$(echo "$response" | sed '$d')"
+
+    if [[ "$http_code" != "200" ]]; then
+        _die "Key rotation failed (HTTP $http_code): $body"
+    fi
+
+    local new_psk grace_period
+    new_psk="$(echo "$body" | grep -o '"new_psk":"[^"]*"' | cut -d'"' -f4)"
+    grace_period="$(echo "$body" | grep -o '"grace_period":[0-9]*' | cut -d':' -f2)"
+
+    if [[ -z "$new_psk" ]]; then
+        _die "No PSK in rotation response"
+    fi
+
+    _log "PSK rotated (grace period: ${grace_period}s)"
+    VOTER_PSK="$new_psk"
+
+    # Update config file
+    if [[ -f "$CONFIG_DIR/voter.conf" ]]; then
+        sed -i "s|^VOTER_PSK=.*|VOTER_PSK=\"$new_psk\"|" "$CONFIG_DIR/voter.conf"
+        _log "Updated PSK in $CONFIG_DIR/voter.conf"
+    fi
+}
+
 # ── Generate or validate PSK ────────────────────────────────────────────────
 setup_psk() {
+    # PSK already set by registration or rotation
     if [[ -n "$VOTER_PSK" ]]; then
         _log "Using provided PSK"
         return
@@ -471,10 +629,7 @@ setup_firewall() {
 
     # firewalld (RHEL/AlmaLinux/Fedora)
     if command -v firewall-cmd &>/dev/null && systemctl is-active --quiet firewalld 2>/dev/null; then
-        # Outbound is typically allowed; only warn if there's a restrictive policy
         _info "firewalld is active — outbound to $tessera_host:$tessera_port should be allowed by default"
-
-        # If DHCP probe is enabled, ensure nmap can send raw packets
         if [[ "$CHECK_METHOD" != "http" ]] && command -v nmap &>/dev/null; then
             _info "DHCP probe requires raw socket access (nmap) — ensure no outbound restrictions"
         fi
@@ -483,7 +638,6 @@ setup_firewall() {
 
     # nftables
     if command -v nft &>/dev/null; then
-        # Check if there's a restrictive output policy
         local output_policy
         output_policy="$(nft list chain inet filter output 2>/dev/null | grep "policy" | awk '{print $NF}' | tr -d ';')"
         if [[ "$output_policy" == "drop" ]]; then
@@ -546,14 +700,14 @@ validate() {
         _warn "Voter will retry on each timer tick — ensure Tessera is running"
     fi
 
-    # Test primary DHCP connectivity
-    _info "Testing primary DHCP server..."
+    # Test active DHCP server connectivity
+    _info "Testing active DHCP server..."
     http_code="$(curl -sk --max-time 5 -o /dev/null -w '%{http_code}' \
         "https://${PRIMARY_IP}:${PRIMARY_PORT}/" 2>/dev/null || echo "000")"
     if [[ "$http_code" != "000" ]]; then
-        _log "Primary DHCP server reachable at $PRIMARY_IP:$PRIMARY_PORT"
+        _log "Active DHCP server reachable at $PRIMARY_IP:$PRIMARY_PORT"
     else
-        _warn "Cannot reach primary DHCP at $PRIMARY_IP:$PRIMARY_PORT"
+        _warn "Cannot reach active DHCP at $PRIMARY_IP:$PRIMARY_PORT"
         _warn "Check firewall rules and network connectivity"
     fi
 
@@ -584,7 +738,7 @@ summary() {
     echo ""
     echo -e "  Voter:         ${CYAN}$VOTER_NAME${NC}"
     echo -e "  Tessera:       ${CYAN}$TESSERA_URL${NC}"
-    echo -e "  Primary DHCP:  ${CYAN}$PRIMARY_IP:$PRIMARY_PORT${NC}"
+    echo -e "  Active DHCP:   ${CYAN}$PRIMARY_IP:$PRIMARY_PORT${NC}"
     echo -e "  Check method:  ${CYAN}$CHECK_METHOD${NC}"
     echo -e "  Config:        ${CYAN}$CONFIG_DIR/voter.conf${NC}"
     echo -e "  Script:        ${CYAN}$INSTALL_DIR/tessera-voter.sh${NC}"
@@ -594,9 +748,11 @@ summary() {
         echo -e "  Cron:          ${CYAN}/etc/cron.d/tessera-voter (1min)${NC}"
     fi
     echo ""
-    echo -e "  ${YELLOW}PSK for voters.json:${NC}"
-    echo -e "  ${CYAN}\"$VOTER_NAME\": \"$VOTER_PSK\"${NC}"
-    echo ""
+    if [[ "$AUTO_REGISTER" != true ]]; then
+        echo -e "  ${YELLOW}PSK for voters.json:${NC}"
+        echo -e "  ${CYAN}\"$VOTER_NAME\": \"$VOTER_PSK\"${NC}"
+        echo ""
+    fi
     echo -e "  Useful commands:"
     if [[ "$INIT_SYSTEM" == "systemd" ]]; then
         echo "    systemctl status tessera-voter.timer"
@@ -618,6 +774,19 @@ main() {
         do_uninstall
     fi
 
+    # Handle key rotation (standalone operation)
+    if [[ "$ROTATE_KEY" == true ]]; then
+        # Interactive prompt for missing Tessera URL
+        if [[ -z "$TESSERA_URL" && -f "$CONFIG_DIR/voter.conf" ]]; then
+            TESSERA_URL="$(grep -oP '^TESSERA_URL="\K[^"]+' "$CONFIG_DIR/voter.conf" 2>/dev/null || true)"
+        fi
+        [[ -z "$TESSERA_URL" ]] && _die "--tessera-url is required"
+        do_rotate_key
+        write_config
+        _log "Key rotation complete"
+        exit 0
+    fi
+
     # Interactive prompts for missing required values
     if [[ -z "$TESSERA_URL" ]]; then
         # Check existing config
@@ -636,11 +805,16 @@ main() {
             PRIMARY_IP="$(grep -oP '^PRIMARY_IP="\K[^"]+' "$CONFIG_DIR/voter.conf" 2>/dev/null || true)"
         fi
         if [[ -z "$PRIMARY_IP" ]]; then
-            echo -n "Primary DHCP server IP: "
+            echo -n "Active DHCP server IP: "
             read -r PRIMARY_IP
         fi
     fi
-    [[ -z "$PRIMARY_IP" ]] && _die "--primary-ip is required"
+    [[ -z "$PRIMARY_IP" ]] && _die "--active-ip is required"
+
+    # Handle auto-registration
+    if [[ "$AUTO_REGISTER" == true ]]; then
+        do_auto_register
+    fi
 
     install_nmap
     setup_psk

@@ -12,8 +12,8 @@ from tessera.exceptions import ScopeSyncError
 
 
 @pytest.fixture
-def mock_primary() -> AsyncMock:
-    """Mock primary TechnitiumClient."""
+def mock_active() -> AsyncMock:
+    """Mock active TechnitiumClient."""
     mock = AsyncMock()
     mock.list_scopes = AsyncMock(return_value=[{"name": "LAN"}, {"name": "IoT"}])
 
@@ -36,8 +36,8 @@ def mock_primary() -> AsyncMock:
 
 
 @pytest.fixture
-def mock_standby() -> AsyncMock:
-    """Mock standby TechnitiumClient."""
+def mock_candidate() -> AsyncMock:
+    """Mock candidate TechnitiumClient."""
     mock = AsyncMock()
     mock.get_scope = AsyncMock(return_value={"reservedLeases": []})
     mock.add_reservation = AsyncMock()
@@ -46,10 +46,10 @@ def mock_standby() -> AsyncMock:
 
 
 @pytest.fixture
-def sync_engine(mock_primary: AsyncMock, mock_standby: AsyncMock) -> ScopeSyncEngine:
+def sync_engine(mock_active: AsyncMock, mock_candidate: AsyncMock) -> ScopeSyncEngine:
     """ScopeSyncEngine with mock clients."""
     engine = ScopeSyncEngine(sync_interval=60)
-    engine.set_clients(mock_primary, mock_standby)
+    engine.set_clients(mock_active, mock_candidate)
     return engine
 
 
@@ -64,23 +64,23 @@ class TestScopeSyncEngine:
     async def test_sync_once_adds_reservations(
         self,
         sync_engine: ScopeSyncEngine,
-        mock_standby: AsyncMock,
+        mock_candidate: AsyncMock,
     ) -> None:
-        """Sync adds missing reservations to standby."""
+        """Sync adds missing reservations to candidate."""
         result = await sync_engine.sync_once()
         assert result["scopes_synced"] == 2
         assert result["reservations_synced"] == 1
-        mock_standby.add_reservation.assert_called_once()
+        mock_candidate.add_reservation.assert_called_once()
 
     async def test_sync_once_removes_stale_reservations(
         self,
-        mock_primary: AsyncMock,
-        mock_standby: AsyncMock,
+        mock_active: AsyncMock,
+        mock_candidate: AsyncMock,
     ) -> None:
-        """Sync removes reservations not present on primary."""
-        mock_primary.list_scopes = AsyncMock(return_value=[{"name": "LAN"}])
-        mock_primary.get_scope = AsyncMock(return_value={"reservedLeases": []})
-        mock_standby.get_scope = AsyncMock(
+        """Sync removes reservations not present on active."""
+        mock_active.list_scopes = AsyncMock(return_value=[{"name": "LAN"}])
+        mock_active.get_scope = AsyncMock(return_value={"reservedLeases": []})
+        mock_candidate.get_scope = AsyncMock(
             return_value={
                 "reservedLeases": [
                     {"hardwareAddress": "AA:BB:CC:DD:EE:99", "address": "10.0.0.1"}
@@ -89,9 +89,9 @@ class TestScopeSyncEngine:
         )
 
         engine = ScopeSyncEngine(sync_interval=60)
-        engine.set_clients(mock_primary, mock_standby)
+        engine.set_clients(mock_active, mock_candidate)
         await engine.sync_once()
-        mock_standby.remove_reservation.assert_called_once()
+        mock_candidate.remove_reservation.assert_called_once()
 
     async def test_sync_without_clients_raises(self) -> None:
         """Sync without configured clients raises ScopeSyncError."""

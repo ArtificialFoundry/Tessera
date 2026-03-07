@@ -1,7 +1,7 @@
 """DHCP scope sync engine.
 
 Periodically syncs DHCP reservations and scope options from
-the primary Technitium server to all standby servers.
+the active Technitium server to all candidate servers.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Fields that differ between primary and standby servers
+# Fields that differ between active and candidate servers
 SERVER_SPECIFIC_FIELDS = frozenset(
     {
         "serverAddress",
@@ -30,7 +30,7 @@ SERVER_SPECIFIC_FIELDS = frozenset(
 
 
 class ScopeSyncEngine(Engine):
-    """Periodic sync of DHCP reservations from primary to all standbys.
+    """Periodic sync of DHCP reservations from active to all candidates.
 
     Attributes:
         name: Engine identifier.
@@ -40,7 +40,7 @@ class ScopeSyncEngine(Engine):
 
     name: str = "scope_sync"
     version: str = "1.0.0"
-    description: str = "DHCP scope reservation sync (primary → standbys)"
+    description: str = "DHCP scope reservation sync (active → candidates)"
     depends_on: tuple[str, ...] = ("technitium",)
 
     def __init__(
@@ -67,15 +67,15 @@ class ScopeSyncEngine(Engine):
         """
         self._pool = pool
 
-    def set_clients(self, primary: Any, standby: Any) -> None:
-        """Set the primary and standby Technitium clients (legacy).
+    def set_clients(self, active: Any, candidate: Any) -> None:
+        """Set the active and candidate Technitium clients (legacy).
 
         Args:
-            primary: TechnitiumClient for the primary server.
-            standby: TechnitiumClient for the standby server.
+            active: TechnitiumClient for the active server.
+            candidate: TechnitiumClient for the candidate server.
         """
-        self._active_client = primary
-        self._candidate_client = standby
+        self._active_client = active
+        self._candidate_client = candidate
 
     async def start(self) -> None:
         """Start the periodic sync task."""
@@ -112,74 +112,74 @@ class ScopeSyncEngine(Engine):
             await asyncio.sleep(self._sync_interval)
 
     def _get_active(self) -> Any:
-        """Get the primary client from pool or legacy."""
+        """Get the active client from pool or legacy."""
         if self._pool:
             return self._pool.get_active()
         return self._active_client
 
     def _get_candidates(self) -> list[Any]:
-        """Get all standby clients from pool or legacy."""
+        """Get all candidate clients from pool or legacy."""
         if self._pool:
             return self._pool.get_candidates()
         if self._candidate_client:
             return [self._candidate_client]
         return []
 
-    async def _sync_to_standby(
-        self, active_client: Any, standby: Any
+    async def _sync_to_candidate(
+        self, active_client: Any, candidate_client: Any
     ) -> dict[str, int]:
-        """Sync all scopes from primary to a single standby.
+        """Sync all scopes from active to a single candidate.
 
         Returns:
             Dict with scopes_synced and reservations_synced counts.
         """
         result = {"scopes_synced": 0, "reservations_synced": 0}
-        primary_scopes = await active_client.list_scopes()
+        active_scopes = await active_client.list_scopes()
 
-        for scope_info in primary_scopes:
+        for scope_info in active_scopes:
             scope_name: str = scope_info.get("name", "")
             if not scope_name:
                 continue
 
-            primary_detail = await active_client.get_scope(scope_name)
+            active_detail = await active_client.get_scope(scope_name)
 
             try:
-                standby_detail = await standby.get_scope(scope_name)
+                candidate_detail = await candidate_client.get_scope(scope_name)
             except Exception:
-                sname = getattr(standby, "server_name", "unknown")
+                sname = getattr(candidate_client, "server_name", "unknown")
                 logger.warning(
-                    "Scope %s not found on standby %s, skipping",
+                    "Scope %s not found on candidate %s, skipping",
                     scope_name,
                     sname,
                 )
                 continue
 
-            primary_reservations: list[dict[str, Any]] = primary_detail.get(
+            active_reservations: list[dict[str, Any]] = active_detail.get(
                 "reservedLeases", []
             )
-            standby_reservations: list[dict[str, Any]] = standby_detail.get(
+            candidate_reservations: list[dict[str, Any]] = candidate_detail.get(
                 "reservedLeases", []
             )
 
-            standby_macs = {
-                r.get("hardwareAddress", "").upper() for r in standby_reservations
+            candidate_macs = {
+                r.get("hardwareAddress", "").upper() for r in candidate_reservations
             }
-            primary_macs = {
-                r.get("hardwareAddress", "").upper() for r in primary_reservations
+            active_macs = {
+                r.get("hardwareAddress", "").upper() for r in active_reservations
             }
 
-            for mac in standby_macs - primary_macs:
-                await standby.remove_reservation(
+            for mac in candidate_macs - active_macs:
+                await candidate_client.remove_reservation(
                     scope_name, hardware_address=mac
                 )
 
-            for reservation in primary_reservations:
+            for reservation in active_reservations:
                 mac = reservation.get("hardwareAddress", "").upper()
-                if mac in standby_macs:
-                    await standby.remove_reservation(
+                if mac in candidate_macs:
+                    await candidate_client.remove_reservation(
                         scope_name, hardware_address=mac
                     )
-                await standby.add_reservation(
+                await candidate_client.add_reservation(
                     scope_name,
                     hardware_address=reservation.get("hardwareAddress", ""),
                     address=reservation.get("address", ""),
@@ -193,7 +193,7 @@ class ScopeSyncEngine(Engine):
         return result
 
     async def sync_once(self) -> dict[str, Any]:
-        """Run a single sync cycle to all standbys.
+        """Run a single sync cycle to all candidates.
 
         Returns:
             Summary of sync results.
@@ -201,11 +201,11 @@ class ScopeSyncEngine(Engine):
         Raises:
             ScopeSyncError: If clients are not configured.
         """
-        primary = self._get_active()
-        standbys = self._get_candidates()
+        active = self._get_active()
+        candidates = self._get_candidates()
 
-        if not primary or not standbys:
-            msg = "Primary or standby clients not configured"
+        if not active or not candidates:
+            msg = "Active or candidate clients not configured"
             raise ScopeSyncError(msg)
 
         import time
@@ -217,10 +217,10 @@ class ScopeSyncEngine(Engine):
         }
 
         try:
-            for standby in standbys:
-                sname = getattr(standby, "server_name", "unknown")
+            for candidate in candidates:
+                sname = getattr(candidate, "server_name", "unknown")
                 try:
-                    sub = await self._sync_to_standby(primary, standby)
+                    sub = await self._sync_to_candidate(active, candidate)
                     results["scopes_synced"] += sub["scopes_synced"]
                     results["reservations_synced"] += sub["reservations_synced"]
                     results["servers_synced"] += 1

@@ -46,8 +46,8 @@ async def promote_server(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return PromoteDemoteResponse(
         name=name,
-        new_role="primary",
-        message=f"Server {name} promoted to primary",
+        new_role="active",
+        message=f"Server {name} promoted to active",
     )
 
 
@@ -66,6 +66,6 @@ async def demote_server(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return PromoteDemoteResponse(
         name=name,
-        new_role="standby",
-        message=f"Server {name} demoted to standby",
+        new_role="candidate",
+        message=f"Server {name} demoted to candidate",
     )

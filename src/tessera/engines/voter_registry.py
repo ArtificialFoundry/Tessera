@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import secrets
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import os
 
 from tessera.exceptions import AppError, AuthenticationError, NotFoundError
 from tessera.registry import Engine, EngineHealth, EngineStatus
@@ -238,7 +240,11 @@ class VoterRegistryEngine(Engine):
         )
         self._tokens[token_str] = token
         self._save_tokens()
-        logger.info("Registration token generated (expires in %ds)", ttl if ttl is not None else self._token_ttl)
+        effective_ttl = ttl if ttl is not None else self._token_ttl
+        logger.info(
+            "Registration token generated (expires in %ds)",
+            effective_ttl,
+        )
         return token
 
     def validate_token(
@@ -534,9 +540,12 @@ class VoterRegistryEngine(Engine):
     def _load_voter_keys(self) -> dict[str, str]:
         """Load voter keys from disk."""
         try:
-            return json.loads(self._voter_keys_file.read_text())
+            result: dict[str, str] = json.loads(
+                self._voter_keys_file.read_text()
+            )
         except (FileNotFoundError, json.JSONDecodeError):
             return {}
+        return result
 
     def _add_voter_key(self, name: str, psk: str) -> None:
         """Add or update a voter key on disk and notify."""

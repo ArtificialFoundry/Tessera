@@ -2,18 +2,21 @@
 
 DHCP management and failover platform for [Technitium DNS Server](https://technitium.com/dns/).
 
-Tessera monitors primary DHCP health through a distributed voter quorum and
-automatically fails over to a standby server when consensus is reached. It also
-provides scope synchronisation, configuration backup, drift enforcement, and a
-web dashboard.
+Tessera monitors active DHCP health through a distributed voter quorum and
+automatically fails over to a candidate server when consensus is reached. It also
+provides scope synchronisation, configuration backup, drift enforcement, hot-reloadable
+configuration, voter self-registration, and a web dashboard.
 
 ## Features
 
+- **Multi-server DHCP** — supports N servers with `active`, `candidate`, and `observer` roles
 - **Voter Quorum Failover** — distributed health voting with server-side cross-validation
-- **Scope Sync Engine** — periodic reservation sync from primary to standby
+- **Scope Sync Engine** — periodic reservation sync from active to all candidate servers
 - **Backup Engine** — scheduled DHCP config snapshots with cron and retention policy
 - **Enforcement Engine** — drift detection and automatic rollback
 - **Authenticated Voter API** — HMAC-SHA256 signed votes with per-voter rate limiting
+- **Voter Self-Registration** — one-time tokens, auto-approve, PSK rotation with grace periods
+- **Hot-Reload Config** — voter keys, server list, and API token reload without restart
 - **DHCP Proxy API** — typed REST endpoints for scopes, leases, and reservations
 - **Web Dashboard** — Preact SPA with real-time failover status and DHCP management
 
@@ -37,13 +40,17 @@ web dashboard.
         │  ┌────┴────┐ ┌─────┴─────┐ │
         │  │ Backup  │ │Enforcement│ │
         │  │ Engine  │ │  Engine   │ │
+        │  └────┬────┘ └─────┬─────┘ │
+        │  ┌────┴────┐ ┌─────┴─────┐ │
+        │  │VoterReg │ │ ConfigWatch│ │
+        │  │ Engine  │ │  Engine   │ │
         │  └─────────┘ └───────────┘ │
         └──────┬──────────────┬──────┘
                │              │
-        ┌──────▼──────┐ ┌────▼───────┐
-        │  Primary    │ │  Standby   │
-        │ Technitium  │ │ Technitium │
-        └─────────────┘ └────────────┘
+        ┌──────▼──────┐ ┌────▼───────┐ ┌────────────┐
+        │   Active    │ │ Candidate  │ │  Observer   │
+        │ Technitium  │ │ Technitium │ │ Technitium  │
+        └─────────────┘ └────────────┘ └────────────┘
 
     Voters (voter-1 through voter-5)
        │
@@ -55,7 +62,7 @@ web dashboard.
 - Python ≥ 3.12
 - Node.js ≥ 22 (frontend build only)
 - [uv](https://docs.astral.sh/uv/) package manager
-- Two Technitium DNS Server instances (primary + standby)
+- Two or more Technitium DNS Server instances
 
 ---
 
@@ -93,6 +100,15 @@ Write the voter keys file (`config/voters.json`):
 }
 ```
 
+Write the servers file (`config/servers.json`):
+
+```json
+[
+  {"name": "dns-1", "url": "https://192.0.2.1:53443", "role": "active", "priority": 0},
+  {"name": "dns-2", "url": "https://192.0.2.2:53443", "role": "candidate", "priority": 10}
+]
+```
+
 Generate voter PSKs with:
 
 ```bash
@@ -114,8 +130,7 @@ services:
     container_name: tessera
     restart: unless-stopped
     environment:
-      - TESSERA_PRIMARY_URL=https://primary-dns:53443
-      - TESSERA_STANDBY_URL=https://standby-dns:53443
+      - TESSERA_SERVERS_FILE=/run/secrets/servers.json
       - TESSERA_API_TOKEN_FILE=/run/secrets/token
       - TESSERA_VOTER_KEYS_FILE=/run/secrets/voters.json
       - TESSERA_PORT=8780
@@ -129,11 +144,13 @@ services:
       - TESSERA_MAX_BACKUPS=50
       - TESSERA_BACKUP_CRON_SCHEDULE=0 */6 * * *
       - TESSERA_ENFORCEMENT_INTERVAL=300
+      - TESSERA_CONFIG_RELOAD_INTERVAL=10
     ports:
       - "8780:8780"
     volumes:
       - ./config/token:/run/secrets/token:ro
       - ./config/voters.json:/run/secrets/voters.json:ro
+      - ./config/servers.json:/run/secrets/servers.json:ro
       - ./data/backups:/var/lib/tessera/backups
     networks:
       - net-tessera
@@ -167,14 +184,14 @@ Create config files:
 sudo mkdir -p /etc/tessera /var/lib/tessera/backups
 sudo cp config/token /etc/tessera/token
 sudo cp config/voters.json /etc/tessera/voters.json
+sudo cp config/servers.json /etc/tessera/servers.json
 sudo chmod 600 /etc/tessera/token
 ```
 
 Run directly:
 
 ```bash
-TESSERA_PRIMARY_URL=https://primary-dns:53443 \
-TESSERA_STANDBY_URL=https://standby-dns:53443 \
+TESSERA_SERVERS_FILE=/etc/tessera/servers.json \
 uv run uvicorn tessera.app:create_app --factory --host 0.0.0.0 --port 8780
 ```
 
@@ -225,10 +242,141 @@ npm run dev
 
 ---
 
+## Multi-Server DHCP
+
+Tessera supports N DHCP servers with three roles:
+
+| Role | Description |
+|------|-------------|
+| `active` | The server currently serving DHCP leases |
+| `candidate` | Ready to be promoted on failover (ranked by priority) |
+| `observer` | Monitored for health but never promoted |
+
+Configure servers via `TESSERA_SERVERS` (JSON string) or `TESSERA_SERVERS_FILE` (path to JSON file):
+
+```json
+[
+  {"name": "dns-1", "url": "https://192.0.2.1:53443", "role": "active", "priority": 0},
+  {"name": "dns-2", "url": "https://192.0.2.2:53443", "role": "candidate", "priority": 10},
+  {"name": "dns-3", "url": "https://192.0.2.3:53443", "role": "candidate", "priority": 20},
+  {"name": "dns-mon", "url": "https://192.0.2.4:53443", "role": "observer", "priority": 99}
+]
+```
+
+**Backward compatibility:** `TESSERA_PRIMARY_URL` and `TESSERA_STANDBY_URL` still work but are deprecated. They auto-create a 2-server config with a deprecation warning.
+
+### Failover behavior
+
+1. Voters report the active server as DOWN
+2. Quorum reached for `failover_rounds` consecutive rounds
+3. Tessera promotes the highest-priority candidate to active
+4. All candidate scopes are enabled
+5. When active recovers, failback reverses the promotion
+
+### Server management API
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/servers` | List all servers with roles and health |
+| `POST` | `/api/v1/servers/{name}/promote` | Promote a candidate to active |
+| `POST` | `/api/v1/servers/{name}/demote` | Demote a server to candidate |
+
+---
+
+## Hot-Reload Configuration
+
+Tessera watches config files for changes and reloads without restart.
+
+### What's hot-reloadable
+
+| File | Effect |
+|------|--------|
+| `voters.json` | New/removed voters take effect immediately |
+| `servers.json` | New/removed DHCP servers (roles via API) |
+| API token file | Token rotation without restart |
+
+### What requires restart
+
+- `TESSERA_PORT`, `TESSERA_HOST` — bind address changes
+- Engine parameters (quorum, failover rounds, etc.)
+
+### Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TESSERA_CONFIG_RELOAD_INTERVAL` | `10` | Seconds between file change checks |
+
+Send `SIGHUP` to trigger an immediate reload:
+
+```bash
+kill -HUP $(pidof uvicorn)
+```
+
+---
+
+## Voter Self-Registration
+
+New voters can register via API without manual config edits.
+
+### Registration flow
+
+1. Admin generates a one-time token: `POST /api/v1/voters/tokens`
+2. Admin gives token to new host (Ansible, cloud-init, SSH, etc.)
+3. Host runs installer: `--auto-register --registration-token <token>`
+4. If `TESSERA_AUTO_APPROVE_VOTERS=true`: PSK returned immediately
+5. If `TESSERA_AUTO_APPROVE_VOTERS=false`: registration pending, admin approves
+
+### One-time registration tokens
+
+```bash
+# Generate a token
+curl -X POST http://tessera:8780/api/v1/voters/tokens \
+  -H "Content-Type: application/json" \
+  -d '{"bind_ip": "192.0.2.11", "ttl": 3600}'
+
+# Token is consumed on first use — cannot be reused
+```
+
+### PSK rotation
+
+Rotate a voter's PSK with a grace period where both old and new keys are accepted:
+
+```bash
+curl -X POST http://tessera:8780/api/v1/voters/voter-2/rotate-key
+# {"voter_name": "voter-2", "new_psk": "...", "grace_period": 60}
+```
+
+### Registration API
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/voters/tokens` | Generate one-time registration token |
+| `GET` | `/api/v1/voters/tokens` | List all registration tokens |
+| `POST` | `/api/v1/voters/register` | Register with a one-time token |
+| `GET` | `/api/v1/voters` | List all registered voters |
+| `GET` | `/api/v1/voters/pending` | List pending registrations |
+| `POST` | `/api/v1/voters/{name}/approve` | Approve a pending voter |
+| `POST` | `/api/v1/voters/{name}/revoke` | Revoke a voter |
+| `DELETE` | `/api/v1/voters/{name}` | Delete (revoke) a voter |
+| `POST` | `/api/v1/voters/{name}/rotate-key` | Rotate PSK with grace period |
+
+### Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TESSERA_REGISTRATION_TOKEN` | *(empty)* | Static registration token (bootstrap fallback) |
+| `TESSERA_REGISTRATION_TOKEN_FILE` | `/etc/tessera/registration-token` | Path to registration token file |
+| `TESSERA_AUTO_APPROVE_VOTERS` | `false` | Auto-approve voter registrations |
+| `TESSERA_VOTER_REGISTRY_FILE` | `/var/lib/tessera/voter-registry.json` | Voter metadata store |
+| `TESSERA_REGISTRATION_TOKEN_TTL` | `3600` | Default TTL for generated tokens (seconds) |
+| `TESSERA_PSK_GRACE_PERIOD` | `60` | Seconds both old and new PSK are valid after rotation |
+
+---
+
 ## Voter Setup
 
 Voters are lightweight agents deployed on infrastructure VMs. Each voter
-independently checks primary DHCP health and submits a signed vote to Tessera
+independently checks active DHCP health and submits a signed vote to Tessera
 every 30 seconds.
 
 ### Quick install (recommended)
@@ -238,12 +386,30 @@ One command per host — handles dependencies, config, systemd, SELinux, and val
 ```bash
 sudo ./voter/tessera-install-voter.sh \
   --tessera-url http://192.0.2.10:8780 \
-  --primary-ip 192.0.2.1
+  --active-ip 192.0.2.1
+```
+
+### Auto-register with one-time token
+
+```bash
+sudo ./voter/tessera-install-voter.sh \
+  --tessera-url http://192.0.2.10:8780 \
+  --active-ip 192.0.2.1 \
+  --auto-register --registration-token abc123...
+```
+
+### Rotate PSK
+
+```bash
+sudo ./voter/tessera-install-voter.sh \
+  --tessera-url http://192.0.2.10:8780 \
+  --active-ip 192.0.2.1 \
+  --rotate-key
 ```
 
 The installer will:
 - Auto-detect the hostname as voter name
-- Generate a new HMAC PSK (printed for you to add to `voters.json`)
+- Generate a new HMAC PSK (or receive one via registration)
 - Install `nmap` for real DHCP probing
 - Create `/etc/tessera/voter.conf`
 - Install the voter script to `/usr/local/bin/`
@@ -255,87 +421,18 @@ The installer will:
 Supports RHEL/AlmaLinux, Debian/Ubuntu, Alpine, openSUSE, and any system
 with systemd or cron.
 
-#### Full options
-
-```bash
-sudo ./voter/tessera-install-voter.sh \
-  --name voter-2    \
-  --tessera-url http://192.0.2.10:8780 \
-  --primary-ip 192.0.2.1 \
-  --psk "$(openssl rand -hex 32)" \
-  --check-method both \
-  --interface eth0
-```
-
 Run `./voter/tessera-install-voter.sh --help` for all options.
-
-#### Idempotent re-runs
-
-Safe to re-run — updates config and restarts services without duplicating anything:
-
-```bash
-# Update Tessera URL
-sudo ./voter/tessera-install-voter.sh \
-  --tessera-url http://new-tessera-host:8780 \
-  --primary-ip 192.0.2.1
-```
-
-#### Uninstall
-
-```bash
-sudo ./voter/tessera-install-voter.sh --uninstall
-```
-
-### Manual install
-
-If you prefer to set things up by hand:
-
-```bash
-# 1. Copy files
-sudo cp voter/tessera-voter.sh /usr/local/bin/tessera-voter.sh
-sudo chmod +x /usr/local/bin/tessera-voter.sh
-sudo cp voter/tessera-voter.service voter/tessera-voter.timer /etc/systemd/system/
-
-# 2. Configure
-sudo mkdir -p /etc/tessera
-sudo tee /etc/tessera/voter.conf <<EOF
-VOTER_NAME="$(hostname -s)"
-VOTER_PSK="$(openssl rand -hex 32)"
-TESSERA_URL="http://192.0.2.10:8780"
-PRIMARY_IP="192.0.2.1"
-PRIMARY_PORT=53443
-CHECK_TIMEOUT=5
-CHECK_METHOD="dhcp"
-DHCP_INTERFACE=""
-EOF
-sudo chmod 600 /etc/tessera/voter.conf
-
-# 3. Enable
-sudo systemctl daemon-reload
-sudo systemctl enable --now tessera-voter.timer
-```
 
 ### DHCP probe mode
 
 By default, voters use `nmap --script broadcast-dhcp-discover` to send a real
-DHCP DISCOVER and verify the primary server responds with a DHCP OFFER. This
-proves the DHCP service is alive — not just the web API.
-
-The installer handles nmap installation automatically. For manual installs:
-
-```bash
-sudo dnf install nmap    # RHEL/AlmaLinux
-sudo apt install nmap    # Debian/Ubuntu
-```
+DHCP DISCOVER and verify the active server responds with a DHCP OFFER.
 
 | Method | What it checks | Requires |
 |--------|---------------|----------|
-| `dhcp` (default) | Actual DHCP OFFER from primary | nmap + root |
+| `dhcp` (default) | Actual DHCP OFFER from active | nmap + root |
 | `http` | Technitium web API responds | curl |
 | `both` | Both DHCP and HTTP must pass | nmap + curl + root |
-
-If nmap isn't installed and `CHECK_METHOD="dhcp"`, the voter falls back to HTTP
-automatically.
 
 ---
 
@@ -346,8 +443,10 @@ a `.env` file, or an environment file for systemd.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `TESSERA_PRIMARY_URL` | `https://192.0.2.1:53443` | Primary Technitium server URL |
-| `TESSERA_STANDBY_URL` | `https://192.0.2.2:53443` | Standby Technitium server URL |
+| `TESSERA_SERVERS` | *(empty)* | JSON string of server configs |
+| `TESSERA_SERVERS_FILE` | `/etc/tessera/servers.json` | Path to servers JSON file |
+| `TESSERA_PRIMARY_URL` | *(deprecated)* | Legacy active server URL |
+| `TESSERA_STANDBY_URL` | *(deprecated)* | Legacy candidate server URL |
 | `TESSERA_API_TOKEN_FILE` | `/etc/tessera/token` | Path to Technitium API token file |
 | `TESSERA_VOTER_KEYS_FILE` | `/etc/tessera/voters.json` | Path to voter HMAC PSK JSON file |
 | `TESSERA_PORT` | `8780` | HTTP listen port |
@@ -360,35 +459,44 @@ a `.env` file, or an environment file for systemd.
 | `TESSERA_SYNC_INTERVAL` | `300` | Scope sync interval in seconds |
 | `TESSERA_BACKUP_DIR` | `/var/lib/tessera/backups` | Backup storage directory |
 | `TESSERA_MAX_BACKUPS` | `50` | Maximum retained backups |
-| `TESSERA_BACKUP_CRON_SCHEDULE` | *(empty)* | Cron expression for auto-backup (e.g. `0 */6 * * *`) |
-| `TESSERA_ENFORCEMENT_INTERVAL` | `300` | Drift enforcement check interval in seconds |
-| `TESSERA_DEBUG` | `false` | Enable debug logging (human-readable format) |
-| `TESSERA_CORS_ORIGINS` | *(empty)* | JSON list of allowed CORS origins (e.g. `'["https://dashboard.example.com"]'`). No CORS middleware is added when empty. |
-| `TESSERA_CA_CERT_FILE` | *(empty)* | Path to a CA certificate bundle for Technitium API requests. When set, the httpx client uses this file for TLS verification instead of disabling verification entirely. Useful inside containers that need to trust an internal CA. |
+| `TESSERA_BACKUP_CRON_SCHEDULE` | *(empty)* | Cron expression for auto-backup |
+| `TESSERA_ENFORCEMENT_INTERVAL` | `300` | Drift enforcement check interval |
+| `TESSERA_CONFIG_RELOAD_INTERVAL` | `10` | Config file watch interval |
+| `TESSERA_REGISTRATION_TOKEN_TTL` | `3600` | Default registration token TTL |
+| `TESSERA_PSK_GRACE_PERIOD` | `60` | PSK rotation grace period |
+| `TESSERA_AUTO_APPROVE_VOTERS` | `false` | Auto-approve voter registrations |
+| `TESSERA_DEBUG` | `false` | Enable debug logging |
 
 ---
 
 ## API
 
-All endpoints are under `/api/v1/`. Future API versions will coexist at
-`/api/v2/`, `/api/v3/`, etc. — existing versions remain stable. Every response
-includes an `X-API-Version` header indicating the version that served the
-request.
+All endpoints are under `/api/v1/`.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/api/v1/ping` | Health check |
-| `GET` | `/api/v1/status` | Failover status, voter states, engine health |
+| `GET` | `/api/v1/health` | Aggregate engine health |
+| `GET` | `/api/v1/status` | Failover status and voter states |
 | `POST` | `/api/v1/vote` | Submit a voter health check (HMAC-signed) |
+| `GET` | `/api/v1/servers` | List all DHCP servers |
+| `POST` | `/api/v1/servers/{name}/promote` | Promote to active |
+| `POST` | `/api/v1/servers/{name}/demote` | Demote to candidate |
 | `GET` | `/api/v1/scopes` | List all DHCP scopes |
 | `GET` | `/api/v1/scopes/{name}` | Get scope details |
 | `POST` | `/api/v1/scopes/{name}/enable` | Enable a scope |
 | `POST` | `/api/v1/scopes/{name}/disable` | Disable a scope |
-| `GET` | `/api/v1/leases` | List leases for all scopes |
-| `GET` | `/api/v1/leases/{scope}` | List leases for a specific scope |
+| `GET` | `/api/v1/leases` | List all leases |
+| `GET` | `/api/v1/leases/{scope}` | List leases for a scope |
 | `GET` | `/api/v1/backups` | List config backups |
-| `GET` | `/api/v1/backups/{id}` | Get backup details |
 | `POST` | `/api/v1/backups` | Create a manual backup |
+| `POST` | `/api/v1/voters/tokens` | Generate registration token |
+| `GET` | `/api/v1/voters/tokens` | List registration tokens |
+| `POST` | `/api/v1/voters/register` | Register a new voter |
+| `GET` | `/api/v1/voters` | List all voters |
+| `POST` | `/api/v1/voters/{name}/approve` | Approve pending voter |
+| `POST` | `/api/v1/voters/{name}/revoke` | Revoke a voter |
+| `POST` | `/api/v1/voters/{name}/rotate-key` | Rotate voter PSK |
 
 ---
 
@@ -407,7 +515,6 @@ uv run mypy src/                       # Type check (strict)
 src/tessera/
 ├── app.py              # FastAPI factory + lifespan
 ├── config.py           # Pydantic settings (env vars)
-├── database.py         # Database placeholder
 ├── deps.py             # FastAPI DI providers
 ├── exceptions.py       # AppError hierarchy
 ├── pages.py            # Frontend SPA page serving
@@ -415,23 +522,28 @@ src/tessera/
 ├── api/
 │   ├── schemas.py      # Pydantic response models
 │   └── v1/
-│       ├── backups.py  # Backup endpoints
-│       ├── failover.py # Vote + status endpoints
-│       ├── health.py   # Ping endpoint
-│       ├── leases.py   # Lease endpoints
-│       └── scopes.py   # Scope CRUD endpoints
+│       ├── backups.py      # Backup endpoints
+│       ├── enforcement.py  # Enforcement endpoints
+│       ├── failover.py     # Vote + status endpoints
+│       ├── health.py       # Ping + health endpoints
+│       ├── leases.py       # Lease endpoints
+│       ├── scopes.py       # Scope CRUD endpoints
+│       ├── servers.py      # Server management endpoints
+│       └── voters.py       # Voter registration endpoints
 ├── engines/
-│   ├── backup.py       # Scheduled backup + retention
-│   ├── enforcement.py  # Drift detection + rollback
-│   ├── failover.py     # Quorum voting + failover logic
-│   ├── scope_sync.py   # Primary→standby reservation sync
-│   └── technitium.py   # Technitium API client
+│   ├── backup.py           # Scheduled backup + retention
+│   ├── config_watcher.py   # Hot-reload config files
+│   ├── enforcement.py      # Drift detection + rollback
+│   ├── failover.py         # Quorum voting + failover logic
+│   ├── scope_sync.py       # Active→candidate reservation sync
+│   ├── technitium.py       # Technitium client + multi-server pool
+│   └── voter_registry.py   # Voter registration + PSK management
 ├── static/             # Built frontend assets
 └── templates/
     └── page.html       # SPA shell template
 
 voter/
-├── tessera-install-voter.sh # Automated installer (recommended)
+├── tessera-install-voter.sh # Automated installer
 ├── tessera-voter.sh         # Voter agent script
 ├── tessera-voter.service    # systemd oneshot unit
 └── tessera-voter.timer      # systemd timer (30s)

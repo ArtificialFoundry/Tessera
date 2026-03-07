@@ -8,6 +8,7 @@ containers with bind mounts (no inotify dependency).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import signal
@@ -64,6 +65,7 @@ class ConfigWatcherEngine(Engine):
         self._reload_count: int = 0
         self._last_reload: float = 0.0
         self._last_error: str = ""
+        self._sighup_task: asyncio.Task[None] | None = None
 
         # Engines to notify on changes
         self._failover_engine: FailoverEngine | None = None
@@ -109,10 +111,8 @@ class ConfigWatcherEngine(Engine):
         """Stop the watcher loop."""
         if self._task:
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
             self._task = None
 
         try:
@@ -126,7 +126,9 @@ class ConfigWatcherEngine(Engine):
     def _sighup_handler(self) -> None:
         """Handle SIGHUP by scheduling an immediate reload."""
         logger.info("SIGHUP received — triggering config reload")
-        asyncio.create_task(self._check_all_files())
+        self._sighup_task = asyncio.create_task(
+            self._check_all_files()
+        )
 
     def _watched_paths(self) -> list[Path]:
         """Return list of paths being watched."""

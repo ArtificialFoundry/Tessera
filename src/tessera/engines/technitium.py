@@ -223,7 +223,7 @@ class TechnitiumClient(Engine):
 class TechnitiumPool:
     """Manages multiple TechnitiumClient instances for N-server failover.
 
-    Tracks server roles (primary, standby, observer) and supports
+    Tracks server roles (active, candidate, observer) and supports
     runtime promotion/demotion.
     """
 
@@ -272,10 +272,10 @@ class TechnitiumPool:
             await client.stop()
 
     def get_active(self) -> TechnitiumClient:
-        """Return the current primary client.
+        """Return the current active client.
 
         Raises:
-            TechnitiumError: If no primary server is configured.
+            TechnitiumError: If no active server is configured.
         """
         for name, role in self._roles.items():
             if role == "active":
@@ -283,26 +283,26 @@ class TechnitiumPool:
         raise TechnitiumError("No active server configured", status_code=0)
 
     def get_candidate(self) -> TechnitiumClient | None:
-        """Return the highest-priority standby client, or None."""
-        standbys = [
+        """Return the highest-priority candidate client, or None."""
+        candidates = [
             (name, self._priorities[name])
             for name, role in self._roles.items()
             if role == "candidate"
         ]
-        if not standbys:
+        if not candidates:
             return None
-        standbys.sort(key=lambda x: x[1])
-        return self._clients[standbys[0][0]]
+        candidates.sort(key=lambda x: x[1])
+        return self._clients[candidates[0][0]]
 
     def get_candidates(self) -> list[TechnitiumClient]:
-        """Return all standby clients sorted by priority."""
-        standbys = [
+        """Return all candidate clients sorted by priority."""
+        candidates = [
             (name, self._priorities[name])
             for name, role in self._roles.items()
             if role == "candidate"
         ]
-        standbys.sort(key=lambda x: x[1])
-        return [self._clients[name] for name, _ in standbys]
+        candidates.sort(key=lambda x: x[1])
+        return [self._clients[name] for name, _ in candidates]
 
     def get_all(self) -> list[TechnitiumClient]:
         """Return all clients."""
@@ -317,7 +317,7 @@ class TechnitiumPool:
         return self._roles.get(name)
 
     def promote(self, server_name: str) -> None:
-        """Promote a server to primary, demoting the current primary.
+        """Promote a server to active, demoting the current active.
 
         Args:
             server_name: Name of the server to promote.
@@ -333,17 +333,17 @@ class TechnitiumPool:
             raise TechnitiumError(
                 f"Cannot promote observer: {server_name}", status_code=0
             )
-        # Demote current primary to standby
+        # Demote current active to candidate
         for name, role in self._roles.items():
             if role == "active":
                 self._roles[name] = "candidate"
-                logger.info("Demoted %s from primary to standby", name)
+                logger.info("Demoted %s from active to candidate", name)
                 break
         self._roles[server_name] = "active"
-        logger.info("Promoted %s to primary", server_name)
+        logger.info("Promoted %s to active", server_name)
 
     def demote(self, server_name: str) -> None:
-        """Demote a server to standby.
+        """Demote a server to candidate.
 
         Args:
             server_name: Name of the server to demote.
@@ -356,7 +356,7 @@ class TechnitiumPool:
                 f"Server not found: {server_name}", status_code=0
             )
         self._roles[server_name] = "candidate"
-        logger.info("Demoted %s to standby", server_name)
+        logger.info("Demoted %s to candidate", server_name)
 
     def get_server_states(self) -> list[dict[str, Any]]:
         """Return current state of all servers.

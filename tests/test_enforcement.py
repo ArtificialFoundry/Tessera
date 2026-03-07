@@ -19,8 +19,8 @@ if TYPE_CHECKING:
 
 
 @pytest.fixture
-def mock_primary() -> AsyncMock:
-    """Mock primary TechnitiumClient."""
+def mock_active() -> AsyncMock:
+    """Mock active TechnitiumClient."""
     mock = AsyncMock()
     mock._base_url = "https://test"
     mock.list_scopes = AsyncMock(return_value=[{"name": "LAN", "enabled": True}])
@@ -45,10 +45,10 @@ def mock_primary() -> AsyncMock:
 
 
 @pytest.fixture
-def backup_eng(tmp_path: Path, mock_primary: AsyncMock) -> BackupEngine:
+def backup_eng(tmp_path: Path, mock_active: AsyncMock) -> BackupEngine:
     """Backup engine with temp dir and mock client."""
     e = BackupEngine(backup_dir=tmp_path / "backups", max_backups=10, auto_interval=0)
-    e.set_primary_client(mock_primary)
+    e.set_active_client(mock_active)
     return e
 
 
@@ -133,7 +133,7 @@ class TestEnforcementEngine:
         self,
         engine: EnforcementEngine,
         backup_eng: BackupEngine,
-        mock_primary: AsyncMock,
+        mock_active: AsyncMock,
     ) -> None:
         """Drift detected when live state differs from backup."""
         await backup_eng.start()
@@ -143,7 +143,7 @@ class TestEnforcementEngine:
         await engine.stop()
 
         # Simulate drift: remove reservation
-        mock_primary.get_scope = AsyncMock(
+        mock_active.get_scope = AsyncMock(
             return_value={
                 "startingAddress": "10.0.0.1",
                 "subnetMask": "255.255.255.0",
@@ -159,7 +159,7 @@ class TestEnforcementEngine:
         self,
         engine: EnforcementEngine,
         backup_eng: BackupEngine,
-        mock_primary: AsyncMock,
+        mock_active: AsyncMock,
     ) -> None:
         """Enforce mode restores state on drift."""
         await backup_eng.start()
@@ -169,7 +169,7 @@ class TestEnforcementEngine:
         await engine.stop()
 
         # Simulate drift
-        mock_primary.get_scope = AsyncMock(
+        mock_active.get_scope = AsyncMock(
             return_value={
                 "startingAddress": "10.0.0.1",
                 "subnetMask": "255.255.255.0",
@@ -180,7 +180,7 @@ class TestEnforcementEngine:
         assert result["drift_detected"] is True
         assert result["action"] == "restored"
         assert engine.enforcement_state.restore_count == 1
-        mock_primary.add_reservation.assert_called()
+        mock_active.add_reservation.assert_called()
 
     async def test_check_without_pin_raises(self, engine: EnforcementEngine) -> None:
         """Check drift without pin raises error."""
@@ -191,7 +191,7 @@ class TestEnforcementEngine:
         self,
         engine: EnforcementEngine,
         backup_eng: BackupEngine,
-        mock_primary: AsyncMock,
+        mock_active: AsyncMock,
     ) -> None:
         """Drift history doesn't grow unbounded."""
         await backup_eng.start()
@@ -202,7 +202,7 @@ class TestEnforcementEngine:
 
         # Generate unique drifts by varying the reservation IP each iteration
         for i in range(55):
-            mock_primary.get_scope = AsyncMock(
+            mock_active.get_scope = AsyncMock(
                 return_value={
                     "startingAddress": "10.0.0.1",
                     "subnetMask": "255.255.255.0",
@@ -223,7 +223,7 @@ class TestEnforcementEngine:
         self,
         engine: EnforcementEngine,
         backup_eng: BackupEngine,
-        mock_primary: AsyncMock,
+        mock_active: AsyncMock,
     ) -> None:
         """Consecutive identical drifts increment count."""
         await backup_eng.start()
@@ -233,7 +233,7 @@ class TestEnforcementEngine:
         await engine.stop()
 
         # Same drift every time: reservation removed
-        mock_primary.get_scope = AsyncMock(
+        mock_active.get_scope = AsyncMock(
             return_value={
                 "startingAddress": "10.0.0.1",
                 "subnetMask": "255.255.255.0",
@@ -251,7 +251,7 @@ class TestEnforcementEngine:
         self,
         engine: EnforcementEngine,
         backup_eng: BackupEngine,
-        mock_primary: AsyncMock,
+        mock_active: AsyncMock,
     ) -> None:
         """Different drift creates a new history entry."""
         await backup_eng.start()
@@ -261,7 +261,7 @@ class TestEnforcementEngine:
         await engine.stop()
 
         # First drift: reservation removed
-        mock_primary.get_scope = AsyncMock(
+        mock_active.get_scope = AsyncMock(
             return_value={
                 "startingAddress": "10.0.0.1",
                 "subnetMask": "255.255.255.0",
@@ -271,7 +271,7 @@ class TestEnforcementEngine:
         await engine.check_drift()
 
         # Second drift: different — extra reservation added
-        mock_primary.get_scope = AsyncMock(
+        mock_active.get_scope = AsyncMock(
             return_value={
                 "startingAddress": "10.0.0.1",
                 "subnetMask": "255.255.255.0",

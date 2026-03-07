@@ -13,8 +13,8 @@ from tessera.exceptions import NotFoundError
 
 
 @pytest.fixture
-def mock_primary() -> AsyncMock:
-    """Mock primary TechnitiumClient with scope data."""
+def mock_active() -> AsyncMock:
+    """Mock active TechnitiumClient with scope data."""
     mock = AsyncMock()
     mock._base_url = "https://192.0.2.1:53443"
     mock.list_scopes = AsyncMock(
@@ -51,10 +51,10 @@ def mock_primary() -> AsyncMock:
 
 
 @pytest.fixture
-def engine(tmp_path: Path, mock_primary: AsyncMock) -> BackupEngine:
+def engine(tmp_path: Path, mock_active: AsyncMock) -> BackupEngine:
     """BackupEngine with temp directory and mock client."""
     e = BackupEngine(backup_dir=tmp_path / "backups", max_backups=5, auto_interval=0)
-    e.set_primary_client(mock_primary)
+    e.set_active_client(mock_active)
     return e
 
 
@@ -121,7 +121,7 @@ class TestBackupEngine:
         e = BackupEngine(
             backup_dir=tmp_path / "backups", max_backups=2, auto_interval=0
         )
-        e.set_primary_client(mock)
+        e.set_active_client(mock)
         await e.start()
         for i in range(4):
             await e.create_backup(description=f"Backup {i}")
@@ -136,14 +136,14 @@ class TestBackupEngine:
             await e.create_backup()
 
     async def test_restore_dry_run(
-        self, engine: BackupEngine, mock_primary: AsyncMock
+        self, engine: BackupEngine, mock_active: AsyncMock
     ) -> None:
         """Dry run restore computes changes without applying."""
         await engine.start()
         manifest = await engine.create_backup()
 
         # Simulate drift: remove the reservation from live state
-        mock_primary.get_scope = AsyncMock(
+        mock_active.get_scope = AsyncMock(
             return_value={
                 "startingAddress": "10.0.0.1",
                 "endingAddress": "10.0.0.254",
@@ -155,16 +155,16 @@ class TestBackupEngine:
         assert result["dry_run"] is True
         assert result["total_changes"] > 0
         # Verify nothing was actually written
-        mock_primary.add_reservation.assert_not_called()
+        mock_active.add_reservation.assert_not_called()
 
     async def test_restore_applies_changes(
-        self, engine: BackupEngine, mock_primary: AsyncMock
+        self, engine: BackupEngine, mock_active: AsyncMock
     ) -> None:
         """Actual restore applies changes to the server."""
         await engine.start()
         manifest = await engine.create_backup()
 
-        mock_primary.get_scope = AsyncMock(
+        mock_active.get_scope = AsyncMock(
             return_value={
                 "startingAddress": "10.0.0.1",
                 "endingAddress": "10.0.0.254",
@@ -175,7 +175,7 @@ class TestBackupEngine:
         result = await engine.restore_backup(manifest.backup_id, dry_run=False)
         assert result["dry_run"] is False
         assert result["total_changes"] > 0
-        mock_primary.add_reservation.assert_called()
+        mock_active.add_reservation.assert_called()
 
     async def test_health_after_backup(self, engine: BackupEngine) -> None:
         """Health reflects backup count."""

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import time
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock
 
 import pytest
@@ -18,6 +20,11 @@ from tessera.engines.voter_registry import (
 )
 from tessera.exceptions import AuthenticationError, TechnitiumError
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from httpx import AsyncClient
+
 # ── Multi-server pool ────────────────────────────────────────────────────────
 
 
@@ -27,40 +34,49 @@ class TestTechnitiumPool:
     @pytest.fixture
     def servers(self) -> list[DhcpServer]:
         return [
-            DhcpServer(name="dns-1", url="https://dns-1:53443", role="primary", priority=0),
-            DhcpServer(name="dns-2", url="https://dns-2:53443", role="standby", priority=10),
-            DhcpServer(name="dns-3", url="https://dns-3:53443", role="observer", priority=99),
+            DhcpServer(
+                name="dns-1", url="https://dns-1:53443",
+                role="active", priority=0,
+            ),
+            DhcpServer(
+                name="dns-2", url="https://dns-2:53443",
+                role="candidate", priority=10,
+            ),
+            DhcpServer(
+                name="dns-3", url="https://dns-3:53443",
+                role="observer", priority=99,
+            ),
         ]
 
     @pytest.fixture
     def pool(self, servers: list[DhcpServer]) -> TechnitiumPool:
         return TechnitiumPool.from_servers(servers, token="test-token")
 
-    def test_get_primary(self, pool: TechnitiumPool) -> None:
-        primary = pool.get_primary()
-        assert primary.server_name == "dns-1"
+    def test_get_active(self, pool: TechnitiumPool) -> None:
+        active_srv = pool.get_active()
+        assert active_srv.server_name == "dns-1"
 
-    def test_get_standby(self, pool: TechnitiumPool) -> None:
-        standby = pool.get_standby()
-        assert standby is not None
-        assert standby.server_name == "dns-2"
+    def test_get_candidate(self, pool: TechnitiumPool) -> None:
+        candidate = pool.get_candidate()
+        assert candidate is not None
+        assert candidate.server_name == "dns-2"
 
-    def test_get_standbys(self, pool: TechnitiumPool) -> None:
-        standbys = pool.get_standbys()
-        assert len(standbys) == 1
-        assert standbys[0].server_name == "dns-2"
+    def test_get_candidates(self, pool: TechnitiumPool) -> None:
+        candidates = pool.get_candidates()
+        assert len(candidates) == 1
+        assert candidates[0].server_name == "dns-2"
 
     def test_get_all(self, pool: TechnitiumPool) -> None:
         assert len(pool.get_all()) == 3
 
     def test_promote(self, pool: TechnitiumPool) -> None:
         pool.promote("dns-2")
-        assert pool.get_role("dns-2") == "primary"
-        assert pool.get_role("dns-1") == "standby"
+        assert pool.get_role("dns-2") == "active"
+        assert pool.get_role("dns-1") == "candidate"
 
     def test_demote(self, pool: TechnitiumPool) -> None:
         pool.demote("dns-1")
-        assert pool.get_role("dns-1") == "standby"
+        assert pool.get_role("dns-1") == "candidate"
 
     def test_promote_observer_fails(self, pool: TechnitiumPool) -> None:
         with pytest.raises(TechnitiumError, match="Cannot promote observer"):
@@ -78,8 +94,14 @@ class TestTechnitiumPool:
 
     def test_update_servers_add_remove(self, pool: TechnitiumPool) -> None:
         new_servers = [
-            DhcpServer(name="dns-1", url="https://dns-1:53443", role="primary", priority=0),
-            DhcpServer(name="dns-4", url="https://dns-4:53443", role="standby", priority=5),
+            DhcpServer(
+                name="dns-1", url="https://dns-1:53443",
+                role="active", priority=0,
+            ),
+            DhcpServer(
+                name="dns-4", url="https://dns-4:53443",
+                role="candidate", priority=5,
+            ),
         ]
         changes = pool.update_servers(new_servers)
         assert any("removed server dns-2" in c for c in changes)
@@ -88,10 +110,10 @@ class TestTechnitiumPool:
         assert pool.get_client("dns-4") is not None
         assert pool.get_client("dns-2") is None
 
-    def test_no_primary_raises(self) -> None:
+    def test_no_active_raises(self) -> None:
         pool = TechnitiumPool(token="x")
-        with pytest.raises(TechnitiumError, match="No primary"):
-            pool.get_primary()
+        with pytest.raises(TechnitiumError, match="No active"):
+            pool.get_active()
 
 
 # ── Multi-server failover ────────────────────────────────────────────────────
@@ -103,7 +125,12 @@ class TestMultiServerFailover:
     @pytest.fixture
     def pool_with_mocks(self) -> TechnitiumPool:
         pool = TechnitiumPool(token="test")
-        for name, role, prio in [("p", "primary", 0), ("s1", "standby", 10), ("s2", "standby", 20)]:
+        servers = [
+            ("p", "active", 0),
+            ("s1", "candidate", 10),
+            ("s2", "candidate", 20),
+        ]
+        for name, role, prio in servers:
             mock = AsyncMock(spec=TechnitiumClient)
             mock.server_name = name
             pool._clients[name] = mock
@@ -126,8 +153,6 @@ class TestMultiServerFailover:
         self, engine: FailoverEngine, pool_with_mocks: TechnitiumPool
     ) -> None:
         """Failover should enable scopes on ALL standby servers."""
-        import hashlib
-        import hmac
 
         ts = int(time.time())
         sig = hmac.new(b"key1", f"v1|down|{ts}".encode(), hashlib.sha256).hexdigest()
@@ -135,7 +160,7 @@ class TestMultiServerFailover:
         result = await engine.evaluate_quorum()
 
         assert result["state"] == "active"
-        # After failover: s1 promoted to primary, so standbys are p and s2
+        # After failover: s1 promoted to active, so candidates are p and s2
         p = pool_with_mocks._clients["p"]
         s2 = pool_with_mocks._clients["s2"]
         p.enable_scope.assert_called_with("scope1")
@@ -421,54 +446,57 @@ class TestFailoverGracePeriod:
     def test_vote_with_old_key_during_grace(
         self, setup: tuple[FailoverEngine, VoterRegistryEngine]
     ) -> None:
-        import hashlib
-        import hmac
 
         engine, registry = setup
         old_psk = registry._load_voter_keys()["voter-1"]
 
         # Rotate key
-        new_psk = registry.rotate_key("voter-1")
+        registry.rotate_key("voter-1")
         engine.update_voter_keys(registry._load_voter_keys())
 
         # Vote with OLD key (should work during grace period)
         ts = int(time.time())
-        sig = hmac.new(old_psk.encode(), f"voter-1|up|{ts}".encode(), hashlib.sha256).hexdigest()
+        msg = f"voter-1|up|{ts}".encode()
+        sig = hmac.new(
+            old_psk.encode(), msg, hashlib.sha256,
+        ).hexdigest()
         vote = engine.submit_vote("voter-1", "up", ts, sig)
         assert vote.voter == "voter-1"
 
     def test_vote_with_new_key(
         self, setup: tuple[FailoverEngine, VoterRegistryEngine]
     ) -> None:
-        import hashlib
-        import hmac
 
         engine, registry = setup
         new_psk = registry.rotate_key("voter-1")
         engine.update_voter_keys(registry._load_voter_keys())
 
         ts = int(time.time())
-        sig = hmac.new(new_psk.encode(), f"voter-1|up|{ts}".encode(), hashlib.sha256).hexdigest()
+        msg = f"voter-1|up|{ts}".encode()
+        sig = hmac.new(
+            new_psk.encode(), msg, hashlib.sha256,
+        ).hexdigest()
         vote = engine.submit_vote("voter-1", "up", ts, sig)
         assert vote.voter == "voter-1"
 
     def test_vote_with_old_key_after_grace_fails(
         self, setup: tuple[FailoverEngine, VoterRegistryEngine]
     ) -> None:
-        import hashlib
-        import hmac
 
         engine, registry = setup
         old_psk = registry._load_voter_keys()["voter-1"]
 
-        new_psk = registry.rotate_key("voter-1")
+        registry.rotate_key("voter-1")
         engine.update_voter_keys(registry._load_voter_keys())
 
         # Expire grace period
         registry._grace_keys["voter-1"].expires_at = time.time() - 1
 
         ts = int(time.time())
-        sig = hmac.new(old_psk.encode(), f"voter-1|up|{ts}".encode(), hashlib.sha256).hexdigest()
+        msg = f"voter-1|up|{ts}".encode()
+        sig = hmac.new(
+            old_psk.encode(), msg, hashlib.sha256,
+        ).hexdigest()
         with pytest.raises(AuthenticationError, match="Invalid signature"):
             engine.submit_vote("voter-1", "up", ts, sig)
 
@@ -491,15 +519,16 @@ class TestServersAPI:
         self, client: AsyncClient, mock_pool: TechnitiumPool
     ) -> None:
         # Add a standby first
-        mock_standby = AsyncMock(spec=TechnitiumClient)
-        mock_standby.server_name = "standby"
-        mock_pool._clients["standby"] = mock_standby
-        mock_pool._roles["standby"] = "standby"
-        mock_pool._priorities["standby"] = 10
+        mock_candidate = AsyncMock(spec=TechnitiumClient)
+        mock_candidate.server_name = "candidate"
+        mock_candidate._base_url = "https://candidate:53443"
+        mock_pool._clients["candidate"] = mock_candidate
+        mock_pool._roles["candidate"] = "candidate"
+        mock_pool._priorities["candidate"] = 10
 
-        resp = await client.post("/api/v1/servers/standby/promote")
+        resp = await client.post("/api/v1/servers/candidate/promote")
         assert resp.status_code == 200
-        assert resp.json()["new_role"] == "primary"
+        assert resp.json()["new_role"] == "active"
 
     @pytest.mark.asyncio
     async def test_promote_unknown_server(self, client: AsyncClient) -> None:
@@ -658,13 +687,13 @@ class TestConfigBackwardCompat:
             )
             servers = settings.get_servers()
         assert len(servers) == 2
-        assert servers[0].role == "primary"
-        assert servers[1].role == "standby"
+        assert servers[0].role == "active"
+        assert servers[1].role == "candidate"
 
     def test_servers_json_string(self) -> None:
         servers_json = json.dumps([
-            {"name": "a", "url": "https://a:53443", "role": "primary"},
-            {"name": "b", "url": "https://b:53443", "role": "standby"},
+            {"name": "a", "url": "https://a:53443", "role": "active"},
+            {"name": "b", "url": "https://b:53443", "role": "candidate"},
         ])
         settings = Settings(servers=servers_json)
         servers = settings.get_servers()
@@ -674,7 +703,7 @@ class TestConfigBackwardCompat:
     def test_servers_file(self, tmp_path: Path) -> None:
         f = tmp_path / "servers.json"
         f.write_text(json.dumps([
-            {"name": "x", "url": "https://x:53443", "role": "primary", "priority": 0},
+            {"name": "x", "url": "https://x:53443", "role": "active", "priority": 0},
         ]))
         settings = Settings(servers_file=f, servers="")
         servers = settings.get_servers()

@@ -119,16 +119,16 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
 
     await registry.start_all()
 
-    # Populate failover engine with scope names from primary
+    # Populate failover engine with scope names from active server
     try:
         from tessera.engines.technitium import TechnitiumClient
 
-        primary = registry.get("technitium")
+        active = registry.get("technitium")
         failover = registry.get("failover")
-        if isinstance(primary, TechnitiumClient) and isinstance(
+        if isinstance(active, TechnitiumClient) and isinstance(
             failover, FailoverEngine
         ):
-            scopes = await primary.list_scopes()
+            scopes = await active.list_scopes()
             names = [s["name"] for s in scopes if s.get("name")]
             failover.set_scope_names(names)
             logger.info("Failover managing %d scopes: %s", len(names), names)

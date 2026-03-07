@@ -1,7 +1,7 @@
 """DHCP state backup engine.
 
 Captures full DHCP configuration snapshots (scope settings + reservations)
-from the primary Technitium server and persists them as timestamped JSON
+from the active Technitium server and persists them as timestamped JSON
 files.  Supports manual and cron-scheduled automatic backups with
 configurable retention.
 """
@@ -128,7 +128,7 @@ class BackupEngine(Engine):
         self._auto_interval = auto_interval  # legacy, ignored if cron set
         self._cron_schedule = cron_schedule
         self._auto_enabled = bool(cron_schedule) or auto_interval > 0
-        self._primary_client: Any = None
+        self._active_client: Any = None
         self._task: asyncio.Task[None] | None = None
         self._last_backup: float = 0.0
         self._backup_count: int = 0
@@ -139,9 +139,9 @@ class BackupEngine(Engine):
         if cron_schedule and not croniter.is_valid(cron_schedule):
             raise BackupError(f"Invalid cron expression: {cron_schedule}")
 
-    def set_primary_client(self, client: Any) -> None:
-        """Set the primary Technitium client for snapshotting."""
-        self._primary_client = client
+    def set_active_client(self, client: Any) -> None:
+        """Set the active Technitium client for snapshotting."""
+        self._active_client = client
 
     @property
     def backup_dir(self) -> Path:
@@ -271,7 +271,7 @@ class BackupEngine(Engine):
         self,
         description: str = "",
     ) -> BackupManifest:
-        """Capture a full DHCP state snapshot from the primary server.
+        """Capture a full DHCP state snapshot from the active server.
 
         Args:
             description: Human-readable description for the backup.
@@ -280,9 +280,9 @@ class BackupEngine(Engine):
             The backup manifest.
 
         Raises:
-            BackupError: If the primary client is not configured or timeout.
+            BackupError: If the active client is not configured or timeout.
         """
-        if not self._primary_client:
+        if not self._active_client:
             raise BackupError("Primary client not configured")
 
         try:
@@ -298,7 +298,7 @@ class BackupEngine(Engine):
         now = time.time()
         backup_id = time.strftime("%Y%m%d-%H%M%S", time.gmtime(now))
 
-        scopes_list = await self._primary_client.list_scopes()
+        scopes_list = await self._active_client.list_scopes()
         scope_snapshots: list[ScopeSnapshot] = []
         total_reservations = 0
 
@@ -306,7 +306,7 @@ class BackupEngine(Engine):
             scope_name: str = scope_info.get("name", "")
             if not scope_name:
                 continue
-            detail = await self._primary_client.get_scope(scope_name)
+            detail = await self._active_client.get_scope(scope_name)
             # Copy to avoid mutating cached/mock data
             detail = dict(detail)
             reservations: list[dict[str, Any]] = detail.pop("reservedLeases", [])
@@ -323,7 +323,7 @@ class BackupEngine(Engine):
         manifest = BackupManifest(
             backup_id=backup_id,
             created_at=now,
-            source=str(getattr(self._primary_client, "_base_url", "unknown")),
+            source=str(getattr(self._active_client, "_base_url", "unknown")),
             description=description or f"Manual backup ({len(scope_snapshots)} scopes)",
             scope_count=len(scope_snapshots),
             reservation_count=total_reservations,
@@ -406,7 +406,7 @@ class BackupEngine(Engine):
         *,
         dry_run: bool = False,
     ) -> dict[str, Any]:
-        """Restore DHCP state from a backup to the primary server.
+        """Restore DHCP state from a backup to the active server.
 
         Args:
             backup_id: The backup to restore from.
@@ -416,10 +416,10 @@ class BackupEngine(Engine):
             Summary of restore operations.
 
         Raises:
-            BackupError: If the primary client is not configured.
+            BackupError: If the active client is not configured.
             NotFoundError: If the backup does not exist.
         """
-        if not self._primary_client:
+        if not self._active_client:
             raise BackupError("Primary client not configured")
 
         backup = await self.get_backup(backup_id)
@@ -431,7 +431,7 @@ class BackupEngine(Engine):
         *,
         dry_run: bool = False,
     ) -> dict[str, Any]:
-        """Apply a backup state to the primary server.
+        """Apply a backup state to the active server.
 
         Compares current live state with the backup and applies the
         minimal set of changes needed to converge.
@@ -448,12 +448,12 @@ class BackupEngine(Engine):
         for scope_snap in backup.scopes:
             # Get current state for comparison
             try:
-                current_detail = await self._primary_client.get_scope(scope_snap.name)
+                current_detail = await self._active_client.get_scope(scope_snap.name)
                 current_detail = dict(current_detail)
             except Exception:
                 # Scope doesn't exist — recreate it
                 if not dry_run:
-                    await self._primary_client.set_scope(
+                    await self._active_client.set_scope(
                         scope_snap.name, scope_snap.settings
                     )
                 changes.append(
@@ -462,7 +462,7 @@ class BackupEngine(Engine):
                 # Add all reservations
                 for res in scope_snap.reservations:
                     if not dry_run:
-                        await self._primary_client.add_reservation(
+                        await self._active_client.add_reservation(
                             scope_snap.name,
                             hardware_address=res.get("hardwareAddress", ""),
                             address=res.get("address", ""),
@@ -485,7 +485,7 @@ class BackupEngine(Engine):
             setting_changes = self._diff_settings(scope_snap.settings, current_detail)
             if setting_changes:
                 if not dry_run:
-                    await self._primary_client.set_scope(
+                    await self._active_client.set_scope(
                         scope_snap.name, scope_snap.settings
                     )
                 for key, diff in setting_changes.items():
@@ -510,7 +510,7 @@ class BackupEngine(Engine):
                                 res.get("hardwareAddress", "").upper()
                                 == rc["detail"].upper()
                             ):
-                                await self._primary_client.add_reservation(
+                                await self._active_client.add_reservation(
                                     scope_snap.name,
                                     hardware_address=res.get("hardwareAddress", ""),
                                     address=res.get("address", ""),
@@ -519,7 +519,7 @@ class BackupEngine(Engine):
                                 )
                                 break
                     elif rc["action"] == "reservation_removed":
-                        await self._primary_client.remove_reservation(
+                        await self._active_client.remove_reservation(
                             scope_snap.name, hardware_address=rc["detail"]
                         )
                 changes.append({"scope": scope_snap.name, **rc})

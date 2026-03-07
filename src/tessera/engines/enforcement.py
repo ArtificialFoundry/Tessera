@@ -1,6 +1,6 @@
 """DHCP state enforcement engine.
 
-Periodically compares the live DHCP configuration on the primary server
+Periodically compares the live DHCP configuration on the active server
 against a pinned backup snapshot.  When drift is detected, the engine
 either logs it (monitor mode) or automatically restores the pinned state
 (enforce mode).

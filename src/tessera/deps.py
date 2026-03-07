@@ -57,7 +57,7 @@ def get_engine_registry() -> EngineRegistry:
         servers, token, ca_cert_file=settings.ca_cert_file,
     )
 
-    # Register the primary client as the "technitium" engine
+    # Register the active client as the "technitium" engine
     active_client = pool.get_active()
     registry.register(active_client)
 
@@ -72,7 +72,7 @@ def get_engine_registry() -> EngineRegistry:
     failover.set_pool(pool)
     registry.register(failover)
 
-    # Scope sync engine (syncs to ALL standbys)
+    # Scope sync engine (syncs to ALL candidates)
     scope_sync = ScopeSyncEngine(sync_interval=settings.sync_interval)
     scope_sync.set_pool(pool)
     registry.register(scope_sync)
@@ -134,7 +134,7 @@ def get_failover_engine() -> FailoverEngine:
 
 
 def get_technitium_client() -> TechnitiumClient:
-    """Return the primary Technitium client from the registry."""
+    """Return the active Technitium client from the registry."""
     engine = get_engine_registry().get("technitium")
     if not isinstance(engine, TechnitiumClient):
         raise AppError("Expected TechnitiumClient")

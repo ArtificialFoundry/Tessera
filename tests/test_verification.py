@@ -32,7 +32,7 @@ def voter_keys_v() -> dict[str, str]:
 
 @pytest.fixture
 def verified_engine(voter_keys_v: dict[str, str]) -> FailoverEngine:
-    """Failover engine with a mock primary client."""
+    """Failover engine with a mock active client."""
     return FailoverEngine(
         quorum=2,
         failover_rounds=2,
@@ -49,12 +49,12 @@ class TestVoteVerification:
     async def test_verified_when_both_agree_up(
         self, verified_engine: FailoverEngine, voter_keys_v: dict[str, str]
     ) -> None:
-        """Vote is VERIFIED when voter says up and primary is healthy."""
+        """Vote is VERIFIED when voter says up and active is healthy."""
         mock_client = AsyncMock()
         mock_client.list_scopes = AsyncMock(
             return_value=[{"name": "default", "enabled": True}]
         )
-        verified_engine.set_primary_client(mock_client)
+        verified_engine.set_active_client(mock_client)
 
         ts = int(time.time())
         for voter in ["voter-1", "voter-2"]:
@@ -71,10 +71,10 @@ class TestVoteVerification:
     async def test_verified_when_both_agree_down(
         self, verified_engine: FailoverEngine, voter_keys_v: dict[str, str]
     ) -> None:
-        """Vote is VERIFIED when voter says down and primary is unhealthy."""
+        """Vote is VERIFIED when voter says down and active is unhealthy."""
         mock_client = AsyncMock()
         mock_client.list_scopes = AsyncMock(return_value=[])
-        verified_engine.set_primary_client(mock_client)
+        verified_engine.set_active_client(mock_client)
 
         ts = int(time.time())
         for voter in ["voter-1", "voter-2"]:
@@ -91,12 +91,12 @@ class TestVoteVerification:
     async def test_conflict_voter_down_primary_healthy(
         self, verified_engine: FailoverEngine, voter_keys_v: dict[str, str]
     ) -> None:
-        """CONFLICT when voter says down but primary is healthy."""
+        """CONFLICT when voter says down but active is healthy."""
         mock_client = AsyncMock()
         mock_client.list_scopes = AsyncMock(
             return_value=[{"name": "default", "enabled": True}]
         )
-        verified_engine.set_primary_client(mock_client)
+        verified_engine.set_active_client(mock_client)
 
         ts = int(time.time())
         for voter in ["voter-1", "voter-2"]:
@@ -114,10 +114,10 @@ class TestVoteVerification:
     async def test_conflict_voter_up_primary_unhealthy(
         self, verified_engine: FailoverEngine, voter_keys_v: dict[str, str]
     ) -> None:
-        """CONFLICT when voter says up but primary is unreachable/unhealthy."""
+        """CONFLICT when voter says up but active is unreachable/unhealthy."""
         mock_client = AsyncMock()
         mock_client.list_scopes = AsyncMock(return_value=[])
-        verified_engine.set_primary_client(mock_client)
+        verified_engine.set_active_client(mock_client)
 
         ts = int(time.time())
         for voter in ["voter-1", "voter-2"]:
@@ -132,10 +132,10 @@ class TestVoteVerification:
     async def test_unverified_when_primary_unreachable(
         self, verified_engine: FailoverEngine, voter_keys_v: dict[str, str]
     ) -> None:
-        """Votes are UNVERIFIED (but counted) when primary times out."""
+        """Votes are UNVERIFIED (but counted) when active times out."""
         mock_client = AsyncMock()
         mock_client.list_scopes = AsyncMock(side_effect=TimeoutError("timeout"))
-        verified_engine.set_primary_client(mock_client)
+        verified_engine.set_active_client(mock_client)
 
         ts = int(time.time())
         for voter in ["voter-1", "voter-2"]:
@@ -158,10 +158,10 @@ class TestVoteVerification:
         mock_client.list_scopes = AsyncMock(
             return_value=[{"name": "default", "enabled": True}]
         )
-        verified_engine.set_primary_client(mock_client)
+        verified_engine.set_active_client(mock_client)
 
         ts = int(time.time())
-        # All voters say "down" but primary is healthy → all CONFLICT
+        # All voters say "down" but active is healthy → all CONFLICT
         for voter in ["voter-1", "voter-2", "voter-3"]:
             sig = _sign(voter, "down", ts, voter_keys_v[voter])
             verified_engine.submit_vote(voter, "down", ts, sig)
@@ -175,8 +175,8 @@ class TestVoteVerification:
     async def test_no_primary_client_all_unverified(
         self, verified_engine: FailoverEngine, voter_keys_v: dict[str, str]
     ) -> None:
-        """Without primary client, all votes are UNVERIFIED and counted."""
-        # Don't set primary client
+        """Without active client, all votes are UNVERIFIED and counted."""
+        # Don't set active client
         ts = int(time.time())
         for voter in ["voter-1", "voter-2"]:
             sig = _sign(voter, "down", ts, voter_keys_v[voter])

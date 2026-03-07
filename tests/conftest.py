@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
@@ -29,6 +28,7 @@ from tessera.registry import EngineRegistry, EngineStatus, ModuleRegistry
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
+    from pathlib import Path
 
 
 @pytest.fixture
@@ -55,7 +55,7 @@ def voter_keys() -> dict[str, str]:
 
 @pytest.fixture
 def failover_engine(voter_keys: dict[str, str]) -> FailoverEngine:
-    """Fresh failover engine for each test (no primary client = no verification)."""
+    """Fresh failover engine for each test (no active client = no verification)."""
     return FailoverEngine(
         quorum=2,
         failover_rounds=2,
@@ -74,7 +74,7 @@ def mock_technitium() -> AsyncMock:
     mock.version = "1.0.0"
     mock.description = "Mock Technitium"
     mock.depends_on = ()
-    mock.server_name = "primary"
+    mock.server_name = "active"
     mock.list_scopes = AsyncMock(return_value=[{"name": "default", "enabled": True}])
     mock.get_scope = AsyncMock(return_value={})
     mock.get_leases = AsyncMock(return_value=[])
@@ -90,15 +90,15 @@ def mock_technitium() -> AsyncMock:
 
 @pytest.fixture
 def mock_pool(mock_technitium: AsyncMock) -> TechnitiumPool:
-    """Mock TechnitiumPool with a single primary."""
+    """Mock TechnitiumPool with a single active."""
     pool = TechnitiumPool(token="test-token")
     mock_technitium._base_url = "https://test:53443"
     mock_technitium.health = MagicMock()
     mock_technitium.health.status = EngineStatus.REGISTERED
     mock_technitium.health.message = ""
-    pool._clients["primary"] = mock_technitium
-    pool._roles["primary"] = "primary"
-    pool._priorities["primary"] = 0
+    pool._clients["active"] = mock_technitium
+    pool._roles["active"] = "active"
+    pool._priorities["active"] = 0
     return pool
 
 
@@ -110,7 +110,7 @@ async def backup_engine(tmp_path: Path, mock_technitium: AsyncMock) -> BackupEng
         max_backups=10,
         auto_interval=0,
     )
-    engine.set_primary_client(mock_technitium)
+    engine.set_active_client(mock_technitium)
     await engine.start()
     return engine
 
