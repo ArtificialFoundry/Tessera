@@ -141,6 +141,13 @@ class RegistrationError(AppError):
         super().__init__(message, code=ErrorCode.REGISTRATION_ERROR)
 
 
+class ValidationError(AppError):
+    """Input validation failed."""
+
+    def __init__(self, message: str = "Validation failed") -> None:
+        super().__init__(message, code=ErrorCode.VALIDATION_ERROR)
+
+
 class ServiceUnavailableError(AppError):
     """A required service or configuration is not available."""
 

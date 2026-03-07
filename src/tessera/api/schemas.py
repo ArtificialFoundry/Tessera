@@ -424,6 +424,7 @@ class VoterInfoResponse(BaseModel):
     status: str
     last_vote: float
     ip_address: str
+    bind_ip: str = ""
 
 
 class VoterListResponse(BaseModel):

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
 import secrets
@@ -104,6 +105,7 @@ class VoterRecord:
     status: str = "pending"
     last_vote: float = 0.0
     ip_address: str = ""
+    bind_ip: str = ""
     callback_url: str = ""
 
     def to_dict(self) -> dict[str, Any]:
@@ -114,6 +116,7 @@ class VoterRecord:
             "status": self.status,
             "last_vote": self.last_vote,
             "ip_address": self.ip_address,
+            "bind_ip": self.bind_ip,
             "callback_url": self.callback_url,
         }
 
@@ -127,6 +130,7 @@ class VoterRecord:
             status=data.get("status", "pending"),
             last_vote=data.get("last_vote", 0.0),
             ip_address=data.get("ip_address", ""),
+            bind_ip=data.get("bind_ip", ""),
             callback_url=data.get("callback_url", ""),
         )
 
@@ -241,6 +245,54 @@ class VoterRegistryEngine(Engine):
 
     # ── Token management ─────────────────────────────────────────────────
 
+    @staticmethod
+    def validate_bind_ip(value: str) -> str:
+        """Validate and normalize a bind IP address or CIDR.
+
+        Accepts:
+            - IPv4 address (e.g., ``192.168.1.10``)
+            - IPv6 address (e.g., ``fd00::1``)
+            - IPv4 CIDR (e.g., ``192.168.1.0/24``)
+            - IPv6 CIDR (e.g., ``fd00::/64``)
+
+        Returns:
+            The normalized string representation.
+
+        Raises:
+            ValueError: If the input is not a valid IP or network.
+        """
+        value = value.strip()
+        if not value:
+            return ""
+        try:
+            if "/" in value:
+                return str(ipaddress.ip_network(value, strict=False))
+            return str(ipaddress.ip_address(value))
+        except ValueError:
+            raise ValueError(
+                f"Invalid bind address: {value!r}. "
+                "Expected an IPv4/IPv6 address (e.g. 192.168.1.10) "
+                "or CIDR (e.g. 192.168.1.0/24)."
+            ) from None
+
+    @staticmethod
+    def ip_matches_bind(source_ip: str, bind_ip: str) -> bool:
+        """Check if a source IP matches a bind restriction.
+
+        Supports both single-address and CIDR matching.
+        """
+        if not bind_ip:
+            return True
+        if not source_ip:
+            return False
+        try:
+            addr = ipaddress.ip_address(source_ip)
+            if "/" in bind_ip:
+                return addr in ipaddress.ip_network(bind_ip, strict=False)
+            return addr == ipaddress.ip_address(bind_ip)
+        except ValueError:
+            return False
+
     def generate_token(
         self,
         *,
@@ -253,12 +305,16 @@ class VoterRegistryEngine(Engine):
         persisted to disk.
 
         Args:
-            bind_ip: Optional IP restriction.
+            bind_ip: Optional IP restriction (address or CIDR).
             ttl: Override default TTL in seconds.
 
         Returns:
             The generated token (with the raw value — only time it's visible).
+
+        Raises:
+            ValueError: If bind_ip is not a valid IP/CIDR.
         """
+        validated_bind = self.validate_bind_ip(bind_ip or "") if bind_ip else None
         now = time.time()
         token_str = secrets.token_hex(32)
         token_hash = hashlib.sha256(token_str.encode()).hexdigest()
@@ -266,7 +322,7 @@ class VoterRegistryEngine(Engine):
             token=token_hash,
             created_at=now,
             expires_at=now + (ttl if ttl is not None else self._token_ttl),
-            bind_ip=bind_ip,
+            bind_ip=validated_bind,
         )
         self._tokens[token_hash] = token
         self._save_tokens()
@@ -319,7 +375,7 @@ class VoterRegistryEngine(Engine):
             raise AuthenticationError("Registration token already used")
         if token.is_expired():
             raise AuthenticationError("Registration token expired")
-        if token.bind_ip and source_ip and token.bind_ip != source_ip:
+        if token.bind_ip and source_ip and not self.ip_matches_bind(source_ip, token.bind_ip):
             raise AuthenticationError(
                 f"Token bound to {token.bind_ip}, request from {source_ip}"
             )
@@ -426,7 +482,9 @@ class VoterRegistryEngine(Engine):
             RegistrationError: If voter already exists.
         """
         # Validate token
-        self.validate_token(token_str, source_ip=source_ip)
+        token_obj = self.validate_token(token_str, source_ip=source_ip)
+        # Inherit bind_ip from token so it persists on the voter record
+        voter_bind_ip = token_obj.bind_ip or ""
 
         if name in self._voters and self._voters[name].status == "approved":
             raise RegistrationError(f"Voter already registered and approved: {name}")
@@ -442,6 +500,7 @@ class VoterRegistryEngine(Engine):
                 approved_at=now,
                 status="approved",
                 ip_address=source_ip,
+                bind_ip=voter_bind_ip,
                 callback_url=callback_url,
             )
             self._add_voter_key(name, psk)
@@ -451,6 +510,7 @@ class VoterRegistryEngine(Engine):
                 registered_at=now,
                 status="pending",
                 ip_address=source_ip,
+                bind_ip=voter_bind_ip,
                 callback_url=callback_url,
             )
 
@@ -630,6 +690,26 @@ class VoterRegistryEngine(Engine):
         if grace:
             del self._grace_keys[voter]
         return False
+
+    def check_voter_ip(self, voter: str, source_ip: str) -> None:
+        """Enforce IP bind restriction for a registered voter.
+
+        Args:
+            voter: Voter name.
+            source_ip: IP address of the incoming request.
+
+        Raises:
+            AuthenticationError: If the voter has a bind_ip and the source
+                doesn't match.
+        """
+        record = self._voters.get(voter)
+        if not record or not record.bind_ip:
+            return
+        if not self.ip_matches_bind(source_ip, record.bind_ip):
+            raise AuthenticationError(
+                f"Voter {voter!r} bound to {record.bind_ip}, "
+                f"request from {source_ip}"
+            )
 
     # ── File I/O ─────────────────────────────────────────────────────────
 

@@ -53,7 +53,7 @@ export function isAuthCancelled(e: unknown): boolean {
 
 // -- Request helper ----------------------------------------------------------
 
-class ApiError extends Error {
+export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
@@ -265,6 +265,7 @@ export interface VoterInfoDetail {
   status: string;
   last_vote: number;
   ip_address: string;
+  bind_ip: string;
 }
 
 export interface VoterListResponse {
@@ -386,4 +387,3 @@ function post(body: unknown): RequestInit {
   return { method: "POST", body: JSON.stringify(body) };
 }
 
-export { ApiError };

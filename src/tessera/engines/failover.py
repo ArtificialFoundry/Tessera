@@ -256,6 +256,7 @@ class FailoverEngine(Engine):
         status: str,
         timestamp_val: int,
         signature: str,
+        source_ip: str = "",
     ) -> Vote:
         """Submit and validate a voter's health check.
 
@@ -264,15 +265,20 @@ class FailoverEngine(Engine):
             status: Vote status ("up" or "down").
             timestamp_val: Unix timestamp from payload.
             signature: HMAC-SHA256 hex signature.
+            source_ip: Source IP for bind enforcement.
 
         Returns:
             The accepted Vote.
 
         Raises:
-            AuthenticationError: On unknown voter, stale timestamp, or bad sig.
+            AuthenticationError: On unknown voter, stale timestamp, bad sig, or IP mismatch.
         """
         if voter not in self._voter_keys:
             raise AuthenticationError(f"Unknown voter: {voter}")
+
+        # Enforce IP bind restriction from voter registry
+        if self._voter_registry:
+            self._voter_registry.check_voter_ip(voter, source_ip)
 
         now = time.time()
 

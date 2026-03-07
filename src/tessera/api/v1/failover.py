@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
 from tessera.api.schemas import (
     FailoverStatusResponse,
@@ -25,14 +25,17 @@ router = APIRouter()
 @router.post("/vote", response_model=VoteResponse)
 async def submit_vote(
     payload: VoteRequest,
+    request: Request,
     failover: FailoverEngine = Depends(get_failover_engine),
 ) -> VoteResponse:
     """Submit a voter health check."""
+    source_ip = request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or (request.client.host if request.client else "")
     vote = failover.submit_vote(
         voter=payload.voter,
         status=payload.status,
         timestamp_val=payload.timestamp,
         signature=payload.signature,
+        source_ip=source_ip,
     )
 
     await failover.evaluate_quorum()

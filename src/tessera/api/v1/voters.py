@@ -37,10 +37,14 @@ async def generate_token(
     registry: VoterRegistryEngine = Depends(get_voter_registry),
 ) -> RegistrationTokenResponse:
     """Generate a one-time registration token."""
-    token = registry.generate_token(
-        bind_ip=body.bind_ip,
-        ttl=body.ttl,
-    )
+    try:
+        token = registry.generate_token(
+            bind_ip=body.bind_ip,
+            ttl=body.ttl,
+        )
+    except ValueError as exc:
+        from tessera.exceptions import ValidationError
+        raise ValidationError(str(exc)) from exc
     return RegistrationTokenResponse(
         token=token.token,
         created_at=token.created_at,
@@ -129,6 +133,7 @@ async def list_voters(
                 status=v.status,
                 last_vote=v.last_vote,
                 ip_address=v.ip_address,
+                bind_ip=v.bind_ip,
             )
             for v in voters
         ],
@@ -153,6 +158,7 @@ async def list_pending(
                 status=v.status,
                 last_vote=v.last_vote,
                 ip_address=v.ip_address,
+                bind_ip=v.bind_ip,
             )
             for v in voters
         ],

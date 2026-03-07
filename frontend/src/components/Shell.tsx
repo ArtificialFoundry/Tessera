@@ -244,17 +244,19 @@ interface ModalProps {
   name: string;
   width?: string;
   children: ComponentChildren;
+  onClose?: () => void;
 }
 
-export function Modal({ name, width, children }: ModalProps) {
+export function Modal({ name, width, children, onClose }: ModalProps) {
   const open = activeModal.value === name;
+  const handleClose = () => { closeModal(); onClose?.(); };
   return (
     <div
       class={`modal-overlay${open ? " open" : ""}`}
-      onClick={(e) => { if (e.target === e.currentTarget) closeModal(); }}
+      onClick={(e) => { if (e.target === e.currentTarget) handleClose(); }}
     >
       <div class="modal" style={width ? `width:${width}` : undefined}>
-        <button class="modal-close" onClick={closeModal}>✕</button>
+        <button class="modal-close" onClick={handleClose}>✕</button>
         {children}
       </div>
     </div>
