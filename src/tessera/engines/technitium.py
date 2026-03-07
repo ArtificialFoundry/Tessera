@@ -82,9 +82,10 @@ class TechnitiumClient(Engine):
     async def start(self) -> None:
         """Initialize the HTTP client."""
         verify: bool | str = True
-        if self._ca_cert_file:
+        if self._skip_tls_verify:
+            verify = False
+        elif self._ca_cert_file:
             verify = self._ca_cert_file
-        elif self._skip_tls_verify:
             verify = False
         if verify is False and self._base_url not in TechnitiumClient._tls_warned_urls:
             TechnitiumClient._tls_warned_urls.add(self._base_url)
