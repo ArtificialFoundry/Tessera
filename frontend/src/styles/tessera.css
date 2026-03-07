@@ -312,3 +312,20 @@ td.mono { font-family: var(--mono); font-size: 12px; }
 /* Input */
 .input { background: rgba(255,255,255,0.06); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; color: var(--text); font-size: 13px; outline: none; }
 .input:focus { border-color: var(--accent); }
+
+/* Live status labels */
+.live-status { font-size: 12px; font-weight: 500; }
+.live-status.online { color: var(--green); }
+.live-status.warn { color: #f97316; }
+.live-status.offline { color: var(--red); }
+.live-status.dormant { color: var(--text-dim); }
+
+/* Dot variants */
+.dot.dormant { background: var(--text-dim); opacity: 0.4; }
+.dot.warn { background: #f97316; }
+
+/* Config-only badge */
+.badge-dim { font-size: 11px; color: var(--text-dim); background: rgba(255,255,255,0.06); padding: 2px 8px; border-radius: 4px; }
+
+/* Pending row highlight */
+.row-pending { background: rgba(234, 179, 8, 0.04); }
