@@ -71,7 +71,7 @@ configuration, voter self-registration, and a web dashboard.
 ### 1. Docker (recommended)
 
 ```bash
-git clone https://gitea.example.com/ArtificialFoundry/tessera.git
+git clone https://github.com/ArtificialFoundry/tessera.git
 cd tessera
 ```
 
@@ -173,7 +173,7 @@ curl -s http://localhost:8780/api/v1/ping
 ### 2. Bare metal / systemd
 
 ```bash
-git clone https://gitea.example.com/ArtificialFoundry/tessera.git
+git clone https://github.com/ArtificialFoundry/tessera.git
 cd tessera
 uv sync --frozen
 ```
@@ -227,7 +227,7 @@ sudo systemctl enable --now tessera
 ### 3. Development
 
 ```bash
-git clone https://gitea.example.com/ArtificialFoundry/tessera.git
+git clone https://github.com/ArtificialFoundry/tessera.git
 cd tessera
 uv sync --all-extras
 

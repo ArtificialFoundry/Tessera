@@ -119,7 +119,7 @@ All engines extend a base `Engine` class and are lifecycle-managed by the `Engin
 - HMAC-SHA256 vote signatures with per-voter PSKs
 - Strict CSP headers on all responses
 - No inline scripts; all JS served from `/static/`
-- OAuth2 Proxy (Keycloak) on external-facing route (`dhcp.example.com`)
+- OAuth2 proxy on external-facing route (`dhcp.example.com`)
 - Container runs as non-root user `tessera` (UID 999)
 
 ## API

@@ -220,11 +220,11 @@ Request → FastAPI Router → Depends(get_*) → Engine/Client → Technitium A
 
 ## Current State
 
-- **Status:** Production — deployed as Docker container (192.0.2.2), Docker container `tessera`, port 8780
+- **Status:** Production — Docker container, port 8780
 - **Test coverage:** 98 tests, all passing
 - **Lint:** ruff clean, mypy strict clean
 - **Known issues:** None
-- **Deployment:** `network_mode: host`, only accessible via VPN (LAN port 8780 firewalled)
+- **Deployment:** `network_mode: host`, port 8780 firewalled to VPN only
 
 ## Known Issues Resolved
 
@@ -249,7 +249,7 @@ Request → FastAPI Router → Depends(get_*) → Engine/Client → Technitium A
 | Client-side lease filtering | Technitium's `/api/dhcp/leases/list` returns ALL leases regardless of `name` param |
 | Composite lease→reservation conversion | No native Technitium endpoint; find MAC from lease list, then `addReservedLease` |
 | `scopes/set` for create and update | Technitium has no separate `create` endpoint; `set` creates if scope doesn't exist |
-| Port 8780 LAN-firewalled | Only accessible via VPN `wt0`; nft drops LAN traffic to 8780 |
+| Port 8780 LAN-firewalled | Only accessible via VPN; nft drops LAN traffic to 8780 |
 
 ## Changelog
 

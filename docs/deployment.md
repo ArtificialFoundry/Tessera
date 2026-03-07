@@ -77,11 +77,11 @@ Maps voter names to HMAC-SHA256 fingerprints:
 
 ```json
 {
-  "voter-1": "d233604405fd7b64...",
-  "voter-2": "db4cea97ba3e81e1...",
-  "voter-3": "2ca1877b7c5d6c54...",
-  "voter-4": "0eb6b0aeea86ba1d...",
-  "voter-5": "25d097932a2ca632..."
+  "voter-1": "example-psk-hash-1...",
+  "voter-2": "example-psk-hash-2...",
+  "voter-3": "example-psk-hash-3...",
+  "voter-4": "example-psk-hash-4...",
+  "voter-5": "example-psk-hash-5..."
 }
 ```
 
@@ -109,10 +109,10 @@ systemctl enable --now tessera-voter.timer
 
 ## External Access
 
-Tessera is exposed via Traefik on `dhcp.example.com` with OAuth2 Proxy (Keycloak):
+Tessera is exposed via Traefik on `dhcp.example.com` with OAuth2 proxy (SSO):
 
 ```
-Client → dhcp.example.com → Traefik (frontend-1)
-  → OAuth2 Proxy → Keycloak auth
+Client → dhcp.example.com → reverse proxy
+  → OAuth2 Proxy → SSO provider auth
   → u2 VPN IP (192.0.2.20:8780)
 ```
