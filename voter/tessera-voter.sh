@@ -47,13 +47,14 @@ done < "$CONF"
 # ── Submit vote ──────────────────────────────────────────────────────────────
 _submit_vote() {
     local status="$1" http_s="$2" dhcp_s="$3" target="${4:-unknown}"
-    local ts sig
+    local ts nonce sig
     ts=$(date +%s)
-    sig=$(printf '%s|%s|%s' "$VOTER_NAME" "$status" "$ts" \
+    nonce=$(openssl rand -hex 16 2>/dev/null || head -c 32 /dev/urandom | od -A n -t x1 | tr -d ' \n')
+    sig=$(printf '%s|%s|%s|%s' "$VOTER_NAME" "$status" "$ts" "$nonce" \
         | openssl dgst -sha256 -hmac "$VOTER_PSK" -hex 2>/dev/null \
         | awk '{print $NF}')
 
-    local payload="{\"voter\":\"${VOTER_NAME}\",\"status\":\"${status}\",\"timestamp\":${ts},\"signature\":\"${sig}\""
+    local payload="{\"voter\":\"${VOTER_NAME}\",\"status\":\"${status}\",\"timestamp\":${ts},\"signature\":\"${sig}\",\"nonce\":\"${nonce}\""
     [[ -n "$http_s" ]] && payload="${payload},\"http_status\":\"${http_s}\""
     [[ -n "$dhcp_s" ]] && payload="${payload},\"dhcp_status\":\"${dhcp_s}\""
     payload="${payload}}"

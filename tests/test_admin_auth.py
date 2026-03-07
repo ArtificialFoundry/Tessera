@@ -20,6 +20,7 @@ from tessera.deps import (
     get_technitium_client,
     get_technitium_pool,
     get_voter_registry,
+    reset_auth_rate_limits,
 )
 from tessera.engines.backup import BackupEngine
 from tessera.engines.enforcement import EnforcementEngine
@@ -204,6 +205,7 @@ async def admin_client(
     voter_registry: VoterRegistryEngine,
 ) -> AsyncGenerator[AsyncClient]:
     """Client with admin_api_key configured."""
+    reset_auth_rate_limits()
     app = _build_app_with_settings(
         ADMIN_KEY,
         engine_registry,

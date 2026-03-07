@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     import os
 
 from tessera.exceptions import AppError, AuthenticationError, NotFoundError
+from tessera.fileutil import atomic_write
 from tessera.registry import Engine, EngineHealth, EngineStatus
 
 logger = logging.getLogger(__name__)
@@ -725,7 +726,7 @@ class VoterRegistryEngine(Engine):
         keys = self._load_voter_keys()
         keys[name] = psk
         self._voter_keys_file.parent.mkdir(parents=True, exist_ok=True)
-        self._voter_keys_file.write_text(json.dumps(keys, indent=2))
+        atomic_write(self._voter_keys_file, json.dumps(keys, indent=2))
         if self._on_keys_changed:
             self._on_keys_changed(keys)
 
@@ -733,7 +734,7 @@ class VoterRegistryEngine(Engine):
         """Remove a voter key from disk and notify."""
         keys = self._load_voter_keys()
         keys.pop(name, None)
-        self._voter_keys_file.write_text(json.dumps(keys, indent=2))
+        atomic_write(self._voter_keys_file, json.dumps(keys, indent=2))
         if self._on_keys_changed:
             self._on_keys_changed(keys)
 
@@ -749,7 +750,7 @@ class VoterRegistryEngine(Engine):
         """Persist registration tokens to disk."""
         self._reg_tokens_file.parent.mkdir(parents=True, exist_ok=True)
         data = {k: v.to_dict() for k, v in self._tokens.items()}
-        self._reg_tokens_file.write_text(json.dumps(data, indent=2))
+        atomic_write(self._reg_tokens_file, json.dumps(data, indent=2))
 
     def _load_registry(self) -> None:
         """Load voter registry from disk."""
@@ -763,7 +764,7 @@ class VoterRegistryEngine(Engine):
         """Persist voter registry to disk."""
         self._voter_registry_file.parent.mkdir(parents=True, exist_ok=True)
         data = {k: v.to_dict() for k, v in self._voters.items()}
-        self._voter_registry_file.write_text(json.dumps(data, indent=2))
+        atomic_write(self._voter_registry_file, json.dumps(data, indent=2))
 
     async def check_health(self) -> EngineHealth:
         """Return engine health."""

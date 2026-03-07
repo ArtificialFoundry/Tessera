@@ -40,6 +40,7 @@ async def submit_vote(
         source_ip=source_ip,
         http_status=payload.http_status,
         dhcp_status=payload.dhcp_status,
+        nonce=payload.nonce,
     )
 
     await failover.evaluate_quorum()

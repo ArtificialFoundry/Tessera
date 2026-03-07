@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Protocol, runtime_checkable
 import httpx
 
 from tessera.exceptions import TechnitiumError
+from tessera.fileutil import atomic_write
 from tessera.registry import Engine, EngineHealth, EngineStatus
 
 if TYPE_CHECKING:
@@ -397,9 +398,7 @@ class TechnitiumPool:
             if client_token and client_token != self._token:
                 entry["token"] = client_token
             data.append(entry)
-        tmp = self._servers_file.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, indent=2))
-        tmp.rename(self._servers_file)
+        atomic_write(self._servers_file, json.dumps(data, indent=2))
         logger.debug("Persisted server roles to %s", self._servers_file)
 
     def get_active(self) -> TechnitiumClient:

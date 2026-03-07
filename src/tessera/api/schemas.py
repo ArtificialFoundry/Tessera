@@ -83,6 +83,7 @@ class VoteRequest(BaseModel):
     status: str
     timestamp: int
     signature: str
+    nonce: str = ""  # v2 replay protection — unique per vote
     http_status: str = ""  # "up" or "down" — HTTP API check result
     dhcp_status: str = ""  # "up" or "down" — DHCP broadcast probe result
 

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import hmac
 import logging
+import time
+from collections import defaultdict
 from functools import lru_cache
 from pathlib import Path
 
@@ -21,7 +23,12 @@ from tessera.engines.failover import FailoverEngine
 from tessera.engines.scope_sync import ScopeSyncEngine
 from tessera.engines.technitium import TechnitiumClient, TechnitiumPool
 from tessera.engines.voter_registry import VoterRegistryEngine
-from tessera.exceptions import AppError, AuthenticationError, ServiceUnavailableError
+from tessera.exceptions import (
+    AppError,
+    AuthenticationError,
+    RateLimitError,
+    ServiceUnavailableError,
+)
 from tessera.registry import EngineRegistry, ModuleRegistry
 from tessera.settings_store import SettingsStore
 
@@ -187,20 +194,66 @@ def get_module_registry() -> ModuleRegistry:
     return ModuleRegistry()
 
 
+# Admin auth rate limiting: per-IP tracking
+_auth_failures: dict[str, list[float]] = defaultdict(list)
+_AUTH_WINDOW = 60.0  # seconds
+_AUTH_MAX_ATTEMPTS = 5  # max failures per window per IP
+
+
+def _check_auth_rate_limit(client_ip: str) -> None:
+    """Reject if too many failed auth attempts from this IP.
+
+    Raises:
+        RateLimitError: If the IP has exceeded the failure threshold.
+    """
+    now = time.time()
+    cutoff = now - _AUTH_WINDOW
+    attempts = _auth_failures[client_ip]
+    # Prune expired entries
+    _auth_failures[client_ip] = [t for t in attempts if t > cutoff]
+    if len(_auth_failures[client_ip]) >= _AUTH_MAX_ATTEMPTS:
+        raise RateLimitError(
+            f"auth:{client_ip}",
+            _AUTH_WINDOW - (now - _auth_failures[client_ip][0]),
+        )
+
+
+def _record_auth_failure(client_ip: str) -> None:
+    """Record a failed auth attempt for rate limiting."""
+    _auth_failures[client_ip].append(time.time())
+
+
+def reset_auth_rate_limits() -> None:
+    """Clear all rate limit state. Used in tests."""
+    _auth_failures.clear()
+
+
 async def require_admin(
     request: Request,
     settings: Settings = Depends(get_settings),  # noqa: B008
 ) -> None:
     """Verify the request carries a valid admin API key.
 
-    Raises ``ServiceUnavailableError`` when the key is not configured
-    and ``AuthenticationError`` when the token is missing or invalid.
+    Rate-limits failed attempts per source IP (5 failures per 60s window).
+
+    Raises ``ServiceUnavailableError`` when the key is not configured,
+    ``RateLimitError`` when too many failed attempts, and
+    ``AuthenticationError`` when the token is missing or invalid.
     """
+    client_ip = request.client.host if request.client else "unknown"
+
     if not settings.admin_api_key:
         raise ServiceUnavailableError("Admin API key not configured")
+
+    _check_auth_rate_limit(client_ip)
+
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
+        _record_auth_failure(client_ip)
+        logger.warning("Admin auth: missing Bearer token from %s", client_ip)
         raise AuthenticationError("Missing Bearer token")
     token = auth.removeprefix("Bearer ").strip()
     if not hmac.compare_digest(token, settings.admin_api_key):
+        _record_auth_failure(client_ip)
+        logger.warning("Admin auth: invalid API key from %s", client_ip)
         raise AuthenticationError("Invalid API key")

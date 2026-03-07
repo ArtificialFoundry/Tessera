@@ -110,6 +110,26 @@ def verify_vote_signature(
     return hmac.compare_digest(expected, signature)
 
 
+def verify_vote_signature_v2(
+    voter: str,
+    status: str,
+    timestamp_val: int,
+    nonce: str,
+    signature: str,
+    psk: str,
+) -> bool:
+    """Verify HMAC-SHA256 signature with nonce (v2 protocol).
+
+    The signed payload includes a nonce to prevent replay attacks.
+    """
+    import hashlib
+    import hmac
+
+    message = f"{voter}|{status}|{timestamp_val}|{nonce}"
+    expected = hmac.new(psk.encode(), message.encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature)
+
+
 class FailoverEngine(Engine):
     """Quorum-based DHCP failover state machine.
 
@@ -159,6 +179,8 @@ class FailoverEngine(Engine):
         self._active_client: TechnitiumClient | None = None
         self._scope_names: list[str] = []
         self._voter_registry: VoterRegistryEngine | None = None
+        # Replay protection: track last-seen nonce per voter
+        self._voter_nonces: dict[str, str] = {}
 
     def set_pool(self, pool: TechnitiumPool) -> None:
         """Set the TechnitiumPool for multi-server failover.
@@ -261,6 +283,7 @@ class FailoverEngine(Engine):
         source_ip: str = "",
         http_status: str = "",
         dhcp_status: str = "",
+        nonce: str = "",
     ) -> Vote:
         """Submit and validate a voter's health check.
 
@@ -270,13 +293,14 @@ class FailoverEngine(Engine):
             timestamp_val: Unix timestamp from payload.
             signature: HMAC-SHA256 hex signature.
             source_ip: Source IP for bind enforcement.
+            nonce: Unique nonce for replay protection (v2 protocol).
 
         Returns:
             The accepted Vote.
 
         Raises:
             AuthenticationError: On unknown voter, stale timestamp,
-                bad signature, or IP mismatch.
+                bad signature, replay, or IP mismatch.
         """
         if voter not in self._voter_keys:
             raise AuthenticationError(f"Unknown voter: {voter}")
@@ -302,11 +326,27 @@ class FailoverEngine(Engine):
         valid_psks = [psk]
         if self._voter_registry:
             valid_psks = self._voter_registry.get_valid_psks(voter) or valid_psks
-        if not any(
-            verify_vote_signature(voter, status, timestamp_val, signature, p)
-            for p in valid_psks
-        ):
-            raise AuthenticationError("Invalid signature")
+
+        # v2 protocol: nonce-based signature with replay protection
+        if nonce:
+            last_nonce = self._voter_nonces.get(voter, "")
+            if nonce == last_nonce:
+                raise AuthenticationError("Duplicate nonce (replay detected)")
+            if not any(
+                verify_vote_signature_v2(
+                    voter, status, timestamp_val, nonce, signature, p
+                )
+                for p in valid_psks
+            ):
+                raise AuthenticationError("Invalid signature")
+            self._voter_nonces[voter] = nonce
+        else:
+            # v1 protocol: backward compatible, no nonce
+            if not any(
+                verify_vote_signature(voter, status, timestamp_val, signature, p)
+                for p in valid_psks
+            ):
+                raise AuthenticationError("Invalid signature")
 
         vote_status = VoteStatus(status.lower())
         vote = Vote(

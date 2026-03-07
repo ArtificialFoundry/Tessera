@@ -12,6 +12,8 @@ import logging
 import threading
 from typing import TYPE_CHECKING, Any
 
+from tessera.fileutil import atomic_write
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -50,11 +52,8 @@ class SettingsStore:
     def _save(self) -> None:
         """Atomically write settings to disk."""
         with self._lock:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self._path.with_suffix(".tmp")
             try:
-                tmp.write_text(json.dumps(self._data, indent=2))
-                tmp.replace(self._path)
+                atomic_write(self._path, json.dumps(self._data, indent=2))
             except OSError:
                 logger.exception("Failed to save settings to %s", self._path)
 

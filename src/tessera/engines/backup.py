@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 from croniter import croniter
 
 from tessera.exceptions import AppError, NotFoundError
+from tessera.fileutil import atomic_write
 from tessera.registry import Engine, EngineHealth, EngineStatus
 
 if TYPE_CHECKING:
@@ -408,7 +409,7 @@ class BackupEngine(Engine):
 
         def _write() -> None:
             with self._fs_lock:
-                filepath.write_text(content)
+                atomic_write(filepath, content)
 
         await asyncio.to_thread(_write)
 
