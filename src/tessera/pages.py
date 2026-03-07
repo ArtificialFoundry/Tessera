@@ -46,7 +46,7 @@ def _scan_assets() -> dict[str, dict[str, str]]:
 
     # JS entries: failover.CzXexGKR.js → failover
     for f in DIST_DIR.glob("*.js"):
-        m = re.match(r"^(\w+)\.\w+\.js$", f.name)
+        m = re.match(r"^(\w+)\.[\w-]+\.js$", f.name)
         if m:
             name = m.group(1)
             assets.setdefault(name, {})["js"] = f"/static/dist/{f.name}"

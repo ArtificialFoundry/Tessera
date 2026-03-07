@@ -3,16 +3,18 @@
 import { render } from "preact";
 import { signal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
-import { api, type FailoverStatus, type VoterInfo } from "@/lib/api";
+import { api, type FailoverStatus, type VoterInfo, type ServersResponse } from "@/lib/api";
 import { timeAgo, formatTime, poll } from "@/lib/utils";
 import { Shell, Modal, openModal, Paginator } from "@/components/Shell";
 import "@/styles/tessera.css";
 
 const status = signal<FailoverStatus | null>(null);
+const servers = signal<ServersResponse | null>(null);
 const voterDetail = signal<(VoterInfo & { name: string }) | null>(null);
 const transOffset = signal(0);
 
-const poller = poll(() => api.status(transOffset.value, 20), status, 5_000);
+const statusPoller = poll(() => api.status(transOffset.value, 20), status, 5_000);
+const serversPoller = poll(() => api.listServers(), servers, 10_000);
 
 function voterClass(v: VoterInfo): string {
   if (!v.received_at || Date.now() / 1000 - v.received_at > 120) return "stale";
@@ -25,16 +27,24 @@ function voteLabel(v: VoterInfo): string {
 }
 
 function FailoverPage() {
-  useEffect(() => { poller.start(); return () => poller.stop(); }, []);
+  useEffect(() => { statusPoller.start(); serversPoller.start(); return () => { statusPoller.stop(); serversPoller.stop(); }; }, []);
 
   const s = status.value;
   if (!s) return <Shell activeTab="failover"><div class="empty">Loading…</div></Shell>;
+
+  const srvList = servers.value?.servers ?? [];
+  // Map servers to primary (lowest priority / active) and standby
+  const activeSrv = srvList.find((sv) => sv.role === "active");
+  const candidateSrv = srvList.find((sv) => sv.role === "candidate");
+  const primaryServer = { name: activeSrv?.name ?? "primary", host: activeSrv?.url?.replace(/^https?:\/\//, "").replace(/:\d+$/, "") ?? "—", status: activeSrv?.status ?? "unknown" };
+  const standbyServer = { name: candidateSrv?.name ?? "standby", host: candidateSrv?.url?.replace(/^https?:\/\//, "").replace(/:\d+$/, "") ?? "—", status: candidateSrv?.status ?? "unknown" };
 
   const isFailoverActive = s.state?.toLowerCase() === "active";
   const voters = s.voters ?? {};
   const voterEntries = Object.entries(voters);
   const upVoters = voterEntries.filter(([, v]) => v.status === "up" && !v.stale && v.received_at && Date.now() / 1000 - v.received_at <= 120);
   const primaryHealth = voterEntries.length === 0 ? "unknown" : upVoters.length > voterEntries.length / 2 ? "healthy" : "unhealthy";
+  const standbyHealth = standbyServer.status === "running" ? "healthy" : standbyServer.status === "registered" ? "unknown" : "unhealthy";
   const quorum = s.config?.quorum ?? 1;
   const quorumPct = Math.min(100, ((s.active_votes ?? 0) / quorum) * 100);
   const quorumClass = s.has_quorum ? "ok" : quorumPct > 50 ? "warn" : "fail";
@@ -48,7 +58,7 @@ function FailoverPage() {
       {/* Server Status Panel */}
       <div class="server-panel fade-up fade-up-1">
         <ServerCard
-          name="dhcp-1" host="192.0.2.1" role="primary"
+          name={primaryServer.name} host={primaryServer.host} role="primary"
           isActive={isActive("primary")} isFailover={isFailoverActive}
           health={primaryHealth}
         />
@@ -58,9 +68,9 @@ function FailoverPage() {
           <div class="arrow-label">{s.state ?? "…"}</div>
         </div>
         <ServerCard
-          name="dhcp-2" host="192.0.2.2" role="standby"
+          name={standbyServer.name} host={standbyServer.host} role="standby"
           isActive={isActive("standby")} isFailover={isFailoverActive}
-          health="healthy"
+          health={standbyHealth}
         />
       </div>
 

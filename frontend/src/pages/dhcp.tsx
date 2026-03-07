@@ -265,7 +265,7 @@ function ScopeDetailModal() {
           <div class="card">
             <div class="form-row">
               <div class="form-field"><label>MAC</label><input value={newRes.mac} onInput={(e) => setNewRes({ ...newRes, mac: (e.target as HTMLInputElement).value })} placeholder="AA:BB:CC:DD:EE:FF" /></div>
-              <div class="form-field"><label>IP</label><input value={newRes.ip} onInput={(e) => setNewRes({ ...newRes, ip: (e.target as HTMLInputElement).value })} placeholder="192.0.2.x" /></div>
+              <div class="form-field"><label>IP</label><input value={newRes.ip} onInput={(e) => setNewRes({ ...newRes, ip: (e.target as HTMLInputElement).value })} placeholder="10.0.0.x" /></div>
               <div class="form-field"><label>Host</label><input value={newRes.host} onInput={(e) => setNewRes({ ...newRes, host: (e.target as HTMLInputElement).value })} placeholder="hostname" /></div>
               <div class="form-field"><label>Notes</label><input value={newRes.comments} onInput={(e) => setNewRes({ ...newRes, comments: (e.target as HTMLInputElement).value })} placeholder="optional" onKeyDown={(e) => e.key === "Enter" && addReservation()} /></div>
             </div>
@@ -417,8 +417,8 @@ function CreateScopeModal() {
       <h2>Create DHCP Scope</h2>
       <div class="form-row"><div class="form-field"><label>Scope Name</label><input value={form.name} onInput={(e) => set("name", (e.target as HTMLInputElement).value)} placeholder="My Scope" /></div></div>
       <div class="form-row">
-        <div class="form-field"><label>Start Address</label><input value={form.starting_address} onInput={(e) => set("starting_address", (e.target as HTMLInputElement).value)} placeholder="192.0.2.100" /></div>
-        <div class="form-field"><label>End Address</label><input value={form.ending_address} onInput={(e) => set("ending_address", (e.target as HTMLInputElement).value)} placeholder="192.0.2.254" /></div>
+        <div class="form-field"><label>Start Address</label><input value={form.starting_address} onInput={(e) => set("starting_address", (e.target as HTMLInputElement).value)} placeholder="10.0.0.100" /></div>
+        <div class="form-field"><label>End Address</label><input value={form.ending_address} onInput={(e) => set("ending_address", (e.target as HTMLInputElement).value)} placeholder="10.0.0.254" /></div>
       </div>
       <div class="form-row">
         <div class="form-field"><label>Subnet Mask</label><input value={form.subnet_mask} onInput={(e) => set("subnet_mask", (e.target as HTMLInputElement).value)} /></div>
