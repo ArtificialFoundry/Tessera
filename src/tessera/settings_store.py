@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -26,30 +27,36 @@ class SettingsStore:
 
     def __init__(self, path: Path) -> None:
         self._path = path
+        self._lock = threading.Lock()
         self._data: dict[str, Any] = {}
         self._load()
 
     def _load(self) -> None:
         """Load settings from disk."""
-        if self._path.is_file():
-            try:
-                self._data = json.loads(self._path.read_text())
-                logger.debug("Settings loaded from %s", self._path)
-            except (json.JSONDecodeError, OSError):
-                logger.warning("Corrupt settings file %s, starting fresh", self._path)
+        with self._lock:
+            if self._path.is_file():
+                try:
+                    self._data = json.loads(self._path.read_text())
+                    logger.debug("Settings loaded from %s", self._path)
+                except (json.JSONDecodeError, OSError):
+                    logger.warning(
+                        "Corrupt settings file %s, starting fresh",
+                        self._path,
+                    )
+                    self._data = {}
+            else:
                 self._data = {}
-        else:
-            self._data = {}
 
     def _save(self) -> None:
         """Atomically write settings to disk."""
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self._path.with_suffix(".tmp")
-        try:
-            tmp.write_text(json.dumps(self._data, indent=2))
-            tmp.replace(self._path)
-        except OSError:
-            logger.exception("Failed to save settings to %s", self._path)
+        with self._lock:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self._path.with_suffix(".tmp")
+            try:
+                tmp.write_text(json.dumps(self._data, indent=2))
+                tmp.replace(self._path)
+            except OSError:
+                logger.exception("Failed to save settings to %s", self._path)
 
     def get(self, section: str) -> dict[str, Any]:
         """Get a settings section.

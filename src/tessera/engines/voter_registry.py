@@ -7,6 +7,8 @@ with grace periods.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import logging
 import secrets
@@ -223,29 +225,39 @@ class VoterRegistryEngine(Engine):
     ) -> RegistrationToken:
         """Generate a one-time registration token.
 
+        The raw token is returned to the caller.  Only a SHA-256 hash is
+        persisted to disk.
+
         Args:
             bind_ip: Optional IP restriction.
             ttl: Override default TTL in seconds.
 
         Returns:
-            The generated token.
+            The generated token (with the raw value — only time it's visible).
         """
         now = time.time()
         token_str = secrets.token_hex(32)
+        token_hash = hashlib.sha256(token_str.encode()).hexdigest()
         token = RegistrationToken(
-            token=token_str,
+            token=token_hash,
             created_at=now,
             expires_at=now + (ttl if ttl is not None else self._token_ttl),
             bind_ip=bind_ip,
         )
-        self._tokens[token_str] = token
+        self._tokens[token_hash] = token
         self._save_tokens()
         effective_ttl = ttl if ttl is not None else self._token_ttl
         logger.info(
             "Registration token generated (expires in %ds)",
             effective_ttl,
         )
-        return token
+        # Return a copy with the raw token so the caller can hand it out
+        return RegistrationToken(
+            token=token_str,
+            created_at=token.created_at,
+            expires_at=token.expires_at,
+            bind_ip=token.bind_ip,
+        )
 
     def validate_token(
         self,
@@ -256,7 +268,7 @@ class VoterRegistryEngine(Engine):
         """Validate a registration token.
 
         Args:
-            token_str: The token string to validate.
+            token_str: The raw token string to validate.
             source_ip: Source IP of the request.
 
         Returns:
@@ -266,7 +278,7 @@ class VoterRegistryEngine(Engine):
             AuthenticationError: If the token is invalid, expired, or used.
         """
         # Check static token first
-        if self._static_token and token_str == self._static_token:
+        if self._static_token and hmac.compare_digest(token_str, self._static_token):
             return RegistrationToken(
                 token=token_str,
                 created_at=0.0,
@@ -275,7 +287,8 @@ class VoterRegistryEngine(Engine):
                 bind_ip=None,
             )
 
-        token = self._tokens.get(token_str)
+        token_hash = hashlib.sha256(token_str.encode()).hexdigest()
+        token = self._tokens.get(token_hash)
         if not token:
             raise AuthenticationError("Invalid registration token")
         if token.used:
@@ -294,20 +307,36 @@ class VoterRegistryEngine(Engine):
         Static tokens are never consumed.
 
         Args:
-            token_str: The token to consume.
+            token_str: The raw token to consume.
             voter_name: The voter that used it.
         """
-        if self._static_token and token_str == self._static_token:
+        if self._static_token and hmac.compare_digest(token_str, self._static_token):
             return  # Static token is never consumed
-        token = self._tokens.get(token_str)
+        token_hash = hashlib.sha256(token_str.encode()).hexdigest()
+        token = self._tokens.get(token_hash)
         if token:
             token.used = True
             token.used_by = voter_name
             self._save_tokens()
 
     def list_tokens(self) -> list[RegistrationToken]:
-        """Return all registration tokens."""
-        return list(self._tokens.values())
+        """Return all registration tokens with truncated hashes.
+
+        Since only hashes are stored, tokens are displayed as first 8
+        characters followed by ``...``.
+        """
+        result: list[RegistrationToken] = []
+        for token in self._tokens.values():
+            display = RegistrationToken(
+                token=token.token[:8] + "...",
+                created_at=token.created_at,
+                expires_at=token.expires_at,
+                used=token.used,
+                used_by=token.used_by,
+                bind_ip=token.bind_ip,
+            )
+            result.append(display)
+        return result
 
     def cleanup_expired_tokens(self) -> int:
         """Remove expired tokens from storage.

@@ -6,8 +6,9 @@ SSL verification is disabled for self-signed certificates.
 
 from __future__ import annotations
 
+import json
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import httpx
 
@@ -15,9 +16,33 @@ from tessera.exceptions import TechnitiumError
 from tessera.registry import Engine, EngineHealth, EngineStatus
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from tessera.config import DhcpServer
 
 logger = logging.getLogger(__name__)
+
+
+@runtime_checkable
+class DhcpClientProtocol(Protocol):
+    """Structural protocol for DHCP client implementations."""
+
+    async def list_scopes(self) -> list[dict[str, Any]]: ...
+    async def get_scope(self, name: str) -> dict[str, Any]: ...
+    async def get_leases(self, scope_name: str) -> list[dict[str, Any]]: ...
+    async def set_scope(self, name: str, settings: dict[str, str]) -> None: ...
+    async def add_reservation(
+        self,
+        scope_name: str,
+        *,
+        hardware_address: str,
+        address: str,
+        host_name: str,
+        comments: str,
+    ) -> None: ...
+    async def remove_reservation(
+        self, scope_name: str, *, hardware_address: str
+    ) -> None: ...
 
 
 class TechnitiumClient(Engine):
@@ -227,16 +252,24 @@ class TechnitiumPool:
     runtime promotion/demotion.
     """
 
-    def __init__(self, token: str, *, ca_cert_file: str = "") -> None:
+    def __init__(
+        self,
+        token: str,
+        *,
+        ca_cert_file: str = "",
+        servers_file: Path | None = None,
+    ) -> None:
         self._token = token
         self._ca_cert_file = ca_cert_file
         self._clients: dict[str, TechnitiumClient] = {}
         self._roles: dict[str, str] = {}  # name -> role
         self._priorities: dict[str, int] = {}  # name -> priority
+        self._servers_file = servers_file
 
     @classmethod
     def from_servers(
         cls, servers: list[DhcpServer], token: str, *, ca_cert_file: str = "",
+        servers_file: Path | None = None,
     ) -> TechnitiumPool:
         """Create a pool from a list of DhcpServer configs.
 
@@ -244,11 +277,23 @@ class TechnitiumPool:
             servers: Server configurations.
             token: Technitium API token.
             ca_cert_file: Optional CA certificate bundle path.
+            servers_file: Optional file for persisting role changes.
 
         Returns:
             A configured TechnitiumPool.
         """
-        pool = cls(token=token, ca_cert_file=ca_cert_file)
+        pool = cls(token=token, ca_cert_file=ca_cert_file, servers_file=servers_file)
+
+        # Load persisted roles if available
+        persisted_roles: dict[str, str] = {}
+        if servers_file and servers_file.is_file():
+            try:
+                saved = json.loads(servers_file.read_text())
+                persisted_roles = {s["name"]: s["role"] for s in saved}
+                logger.info("Loaded persisted server roles from %s", servers_file)
+            except (json.JSONDecodeError, KeyError):
+                logger.warning("Corrupt servers file, ignoring: %s", servers_file)
+
         for server in servers:
             client = TechnitiumClient(
                 base_url=server.url,
@@ -257,7 +302,7 @@ class TechnitiumPool:
                 ca_cert_file=ca_cert_file,
             )
             pool._clients[server.name] = client
-            pool._roles[server.name] = server.role
+            pool._roles[server.name] = persisted_roles.get(server.name, server.role)
             pool._priorities[server.name] = server.priority
         return pool
 
@@ -270,6 +315,24 @@ class TechnitiumPool:
         """Stop all clients in the pool."""
         for client in self._clients.values():
             await client.stop()
+
+    def _persist_roles(self) -> None:
+        """Write current server roles to disk atomically."""
+        if not self._servers_file:
+            return
+        data = [
+            {
+                "name": name,
+                "url": self._clients[name]._base_url,
+                "role": self._roles[name],
+                "priority": self._priorities[name],
+            }
+            for name in self._clients
+        ]
+        tmp = self._servers_file.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, indent=2))
+        tmp.rename(self._servers_file)
+        logger.debug("Persisted server roles to %s", self._servers_file)
 
     def get_active(self) -> TechnitiumClient:
         """Return the current active client.
@@ -341,6 +404,7 @@ class TechnitiumPool:
                 break
         self._roles[server_name] = "active"
         logger.info("Promoted %s to active", server_name)
+        self._persist_roles()
 
     def demote(self, server_name: str) -> None:
         """Demote a server to candidate.
@@ -357,6 +421,7 @@ class TechnitiumPool:
             )
         self._roles[server_name] = "candidate"
         logger.info("Demoted %s to candidate", server_name)
+        self._persist_roles()
 
     def get_server_states(self) -> list[dict[str, Any]]:
         """Return current state of all servers.

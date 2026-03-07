@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from contextlib import asynccontextmanager, contextmanager
@@ -140,6 +141,17 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     logger.info("Stopping engines...")
     await registry.stop_all()
 
+    # Wait for in-flight operations to complete (up to 10s)
+    pending = [
+        t for t in asyncio.all_tasks()
+        if t is not asyncio.current_task() and not t.done()
+    ]
+    if pending:
+        logger.info("Waiting up to 10s for %d in-flight tasks...", len(pending))
+        _done, _not_done = await asyncio.wait(pending, timeout=10.0)
+        if _not_done:
+            logger.warning("%d tasks did not complete within 10s", len(_not_done))
+
     # Stop pool clients
     try:
         pool = get_technitium_pool()
@@ -147,7 +159,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     except Exception:
         logger.exception("Failed to stop TechnitiumPool")
 
-    logger.info("All engines stopped.")
+    logger.info("Graceful shutdown complete.")
 
 
 _OPENAPI_TAGS: list[dict[str, str]] = [
@@ -193,6 +205,11 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
         openapi_tags=_OPENAPI_TAGS,
     )
+
+    # Request body size limit (must be outermost middleware)
+    from tessera.middleware import RequestSizeLimitMiddleware
+
+    app.add_middleware(RequestSizeLimitMiddleware, max_body_size=1_048_576)
 
     # CORS — only add middleware if origins are configured
     if settings.cors_origins:

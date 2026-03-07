@@ -25,6 +25,7 @@ from tessera.registry import Engine, EngineHealth, EngineStatus
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from tessera.engines.technitium import DhcpClientProtocol
     from tessera.settings_store import SettingsStore
 
 logger = logging.getLogger(__name__)
@@ -131,13 +132,15 @@ class BackupEngine(Engine):
         self._auto_interval = auto_interval  # legacy, ignored if cron set
         self._cron_schedule = cron_schedule
         self._auto_enabled = bool(cron_schedule) or auto_interval > 0
-        self._active_client: Any = None
+        self._active_client: DhcpClientProtocol | None = None
         self._task: asyncio.Task[None] | None = None
         self._last_backup: float = 0.0
         self._backup_count: int = 0
         self._last_error: str = ""
         self._next_run: float = 0.0
         self._store = settings_store
+        self._consecutive_failures: int = 0
+        self._backoff_seconds: float = 60.0
 
         # Restore persisted settings (override defaults)
         self._restore_settings()
@@ -179,7 +182,7 @@ class BackupEngine(Engine):
             "auto_interval": self._auto_interval,
         })
 
-    def set_active_client(self, client: Any) -> None:
+    def set_active_client(self, client: DhcpClientProtocol) -> None:
         """Set the active Technitium client for snapshotting."""
         self._active_client = client
 
@@ -298,6 +301,8 @@ class BackupEngine(Engine):
 
     async def _auto_backup_loop(self) -> None:
         """Run automatic backups on the configured cron schedule or interval."""
+        _max_backoff = 3600.0
+        _degraded_threshold = 5
         while True:
             self._next_run = self._compute_next_run()
             sleep_for = max(1.0, self._next_run - time.time())
@@ -305,8 +310,22 @@ class BackupEngine(Engine):
             await asyncio.sleep(sleep_for)
             try:
                 await self.create_backup(description="Automatic backup")
+                self._consecutive_failures = 0
+                self._backoff_seconds = 60.0
             except Exception:
-                logger.exception("Auto-backup failed")
+                self._consecutive_failures += 1
+                fails = self._consecutive_failures
+                if fails == 1:
+                    logger.warning("Auto-backup failed (attempt %d)", fails)
+                else:
+                    logger.debug("Auto-backup failed (attempt %d)", fails)
+                if fails >= _degraded_threshold:
+                    self.health.status = EngineStatus.DEGRADED
+                    self.health.message = (
+                        f"Auto-backup failed {fails} consecutive times"
+                    )
+                await asyncio.sleep(self._backoff_seconds)
+                self._backoff_seconds = min(self._backoff_seconds * 2, _max_backoff)
 
     async def create_backup(
         self,
@@ -336,6 +355,7 @@ class BackupEngine(Engine):
 
     async def _do_create_backup(self, description: str) -> BackupManifest:
         """Inner coroutine for create_backup (wrapped by wait_for)."""
+        assert self._active_client is not None
         now = time.time()
         backup_id = time.strftime("%Y%m%d-%H%M%S", time.gmtime(now))
 
@@ -464,7 +484,50 @@ class BackupEngine(Engine):
             raise BackupError("Primary client not configured")
 
         backup = await self.get_backup(backup_id)
-        return await self._apply_state(backup, dry_run=dry_run)
+
+        # Create pre-restore snapshot for rollback (skip on dry_run)
+        pre_restore_backup_id: str | None = None
+        if not dry_run:
+            try:
+                pre_manifest = await self.create_backup(
+                    description=f"Pre-restore snapshot before restoring {backup_id}",
+                )
+                pre_restore_backup_id = pre_manifest.backup_id
+                logger.info(
+                    "Pre-restore backup created: %s", pre_restore_backup_id
+                )
+            except Exception as exc:
+                logger.exception("Failed to create pre-restore backup")
+                raise BackupError(
+                    "Cannot create pre-restore safety backup; aborting restore"
+                ) from exc
+
+        try:
+            result = await self._apply_state(backup, dry_run=dry_run)
+        except Exception:
+            logger.exception(
+                "Restore of %s failed midway — attempting rollback", backup_id
+            )
+            if pre_restore_backup_id:
+                try:
+                    pre_backup = await self.get_backup(pre_restore_backup_id)
+                    await self._apply_state(pre_backup, dry_run=False)
+                    logger.warning(
+                        "Rollback to pre-restore backup %s succeeded",
+                        pre_restore_backup_id,
+                    )
+                except Exception:
+                    logger.critical(
+                        "Rollback ALSO FAILED — DHCP config may be inconsistent"
+                    )
+                    self.health.status = EngineStatus.DEGRADED
+                    self.health.message = (
+                        "Restore and rollback both failed; manual intervention required"
+                    )
+            raise
+
+        result["pre_restore_backup_id"] = pre_restore_backup_id
+        return result
 
     async def _apply_state(
         self,
@@ -484,6 +547,7 @@ class BackupEngine(Engine):
         Returns:
             Summary of changes (applied or planned).
         """
+        assert self._active_client is not None
         changes: list[dict[str, str]] = []
 
         for scope_snap in backup.scopes:

@@ -32,7 +32,20 @@ if [[ ! -f "$CONF" ]]; then
     exit 1
 fi
 # shellcheck source=/dev/null
-source "$CONF"
+while IFS='=' read -r key val; do
+    # Skip comments and empty lines
+    [[ "$key" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "$key" ]] && continue
+    # Strip quotes and leading/trailing whitespace
+    key=$(echo "$key" | xargs)
+    val=$(echo "$val" | sed 's/^["'"'"']//' | sed 's/["'"'"']$//')
+    # Only accept known variables
+    case "$key" in
+        VOTER_NAME|VOTER_PSK|TESSERA_URL|PRIMARY_IP|PRIMARY_PORT|CHECK_TIMEOUT|DHCP_INTERFACE|CHECK_METHOD)
+            export "$key=$val"
+            ;;
+    esac
+done < "$CONF"
 
 # Required vars: VOTER_NAME, VOTER_PSK, TESSERA_URL, PRIMARY_IP
 : "${VOTER_NAME:?VOTER_NAME not set}"

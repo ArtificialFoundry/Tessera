@@ -55,9 +55,15 @@ class ScopeSyncEngine(Engine):
         self._sync_count: int = 0
         self._last_error: str = ""
         self._pool: TechnitiumPool | None = None
+        self._last_sync_status: dict[str, str] = {}
         # Legacy single-client mode
         self._active_client: Any = None
         self._candidate_client: Any = None
+
+    @property
+    def sync_status(self) -> dict[str, str]:
+        """Return last sync result per candidate."""
+        return dict(self._last_sync_status)
 
     def set_pool(self, pool: TechnitiumPool) -> None:
         """Set the TechnitiumPool for multi-server sync.
@@ -196,7 +202,7 @@ class ScopeSyncEngine(Engine):
         """Run a single sync cycle to all candidates.
 
         Returns:
-            Summary of sync results.
+            Summary of sync results including per-candidate status.
 
         Raises:
             ScopeSyncError: If clients are not configured.
@@ -215,37 +221,51 @@ class ScopeSyncEngine(Engine):
             "reservations_synced": 0,
             "servers_synced": 0,
         }
+        candidate_results: dict[str, str] = {}
+        any_failed = False
 
-        try:
-            for candidate in candidates:
-                sname = getattr(candidate, "server_name", "unknown")
-                try:
-                    sub = await self._sync_to_candidate(active, candidate)
-                    results["scopes_synced"] += sub["scopes_synced"]
-                    results["reservations_synced"] += sub["reservations_synced"]
-                    results["servers_synced"] += 1
-                    logger.info(
-                        "Synced to %s: %d scopes, %d reservations",
-                        sname,
-                        sub["scopes_synced"],
-                        sub["reservations_synced"],
-                    )
-                except Exception:
-                    logger.exception("Sync to %s failed", sname)
+        for candidate in candidates:
+            sname = getattr(candidate, "server_name", "unknown")
+            try:
+                sub = await self._sync_to_candidate(active, candidate)
+                results["scopes_synced"] += sub["scopes_synced"]
+                results["reservations_synced"] += sub["reservations_synced"]
+                results["servers_synced"] += 1
+                candidate_results[sname] = "success"
+                logger.info(
+                    "Synced to %s: %d scopes, %d reservations",
+                    sname,
+                    sub["scopes_synced"],
+                    sub["reservations_synced"],
+                )
+            except Exception as exc:
+                candidate_results[sname] = f"error: {exc}"
+                any_failed = True
+                logger.exception("Sync to %s failed", sname)
 
-            self._sync_count += 1
-            self._last_sync = time.time()
-            self._last_error = ""
-            logger.info(
-                "Sync complete: %d servers, %d scopes, %d reservations",
-                results["servers_synced"],
-                results["scopes_synced"],
-                results["reservations_synced"],
+        self._last_sync_status = candidate_results
+        self._sync_count += 1
+        self._last_sync = time.time()
+
+        if any_failed:
+            self._last_error = "Partial sync failure"
+            self.health.status = EngineStatus.DEGRADED
+            self.health.message = (
+                "Sync partial failure: "
+                + ", ".join(
+                    f"{k}={v}" for k, v in candidate_results.items() if v != "success"
+                )
             )
-        except Exception as exc:
-            self._last_error = str(exc)
-            raise
+        else:
+            self._last_error = ""
 
+        logger.info(
+            "Sync complete: %d servers, %d scopes, %d reservations",
+            results["servers_synced"],
+            results["scopes_synced"],
+            results["reservations_synced"],
+        )
+        results["candidate_results"] = candidate_results
         return results
 
     async def check_health(self) -> EngineHealth:

@@ -155,10 +155,19 @@ preflight() {
 
     # OS detection
     if [[ -f /etc/os-release ]]; then
-        # shellcheck source=/dev/null
-        source /etc/os-release
-        OS_ID="${ID:-unknown}"
-        OS_FAMILY="${ID_LIKE:-$OS_ID}"
+        OS_ID="unknown"
+        OS_FAMILY="unknown"
+        while IFS='=' read -r key val; do
+            [[ "$key" =~ ^[[:space:]]*# ]] && continue
+            [[ -z "$key" ]] && continue
+            key=$(echo "$key" | xargs)
+            val=$(echo "$val" | sed 's/^["'"'"']//' | sed 's/["'"'"']$//')
+            case "$key" in
+                ID) OS_ID="$val" ;;
+                ID_LIKE) OS_FAMILY="$val" ;;
+            esac
+        done < /etc/os-release
+        OS_FAMILY="${OS_FAMILY:-$OS_ID}"
     else
         OS_ID="unknown"
         OS_FAMILY="unknown"

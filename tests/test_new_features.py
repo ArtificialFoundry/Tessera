@@ -252,7 +252,7 @@ class TestVoterRegistry:
     def test_validate_valid_token(self, registry: VoterRegistryEngine) -> None:
         token = registry.generate_token()
         validated = registry.validate_token(token.token)
-        assert validated.token == token.token
+        assert validated.is_valid()
 
     def test_validate_expired_token(self, registry: VoterRegistryEngine) -> None:
         token = registry.generate_token(ttl=0)
@@ -285,7 +285,7 @@ class TestVoterRegistry:
             registry.validate_token(token.token, source_ip="10.0.0.2")
         # Correct IP
         validated = registry.validate_token(token.token, source_ip="10.0.0.1")
-        assert validated.token == token.token
+        assert validated.is_valid()
 
     def test_cleanup_expired_tokens(self, registry: VoterRegistryEngine) -> None:
         registry.generate_token(ttl=0)

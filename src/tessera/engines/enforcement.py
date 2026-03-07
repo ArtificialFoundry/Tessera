@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import random
 import time
 from dataclasses import dataclass, field
 from enum import StrEnum, auto
@@ -342,12 +343,15 @@ class EnforcementEngine(Engine):
 
     async def _check_loop(self) -> None:
         """Periodic drift detection loop."""
+        # Initial random delay to avoid thundering herd
+        await asyncio.sleep(random.uniform(5, 30))
         while True:
             try:
                 await self.check_drift()
             except Exception:
                 logger.exception("Drift check failed")
-            await asyncio.sleep(self._state.check_interval)
+            jitter = random.uniform(0.1, 0.3) * self._state.check_interval
+            await asyncio.sleep(self._state.check_interval + jitter)
 
     async def check_drift(self) -> dict[str, Any]:
         """Run a single drift check against the pinned backup.
