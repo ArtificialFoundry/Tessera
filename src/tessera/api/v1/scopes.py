@@ -15,7 +15,7 @@ from tessera.api.schemas import (
     ScopesResponse,
     ScopeUpdateRequest,
 )
-from tessera.deps import get_technitium_client
+from tessera.deps import get_technitium_client, require_admin
 from tessera.exceptions import TechnitiumError
 
 if TYPE_CHECKING:
@@ -45,7 +45,11 @@ async def list_scopes(
     )
 
 
-@router.post("", response_model=MessageResponse)
+@router.post(
+    "",
+    response_model=MessageResponse,
+    dependencies=[Depends(require_admin)],
+)
 async def create_scope(
     body: ScopeCreateRequest,
     client: TechnitiumClient = Depends(get_technitium_client),
@@ -95,7 +99,11 @@ async def get_scope(
     return ScopeDetailResponse(name=name, data=detail)
 
 
-@router.put("/{name}", response_model=MessageResponse)
+@router.put(
+    "/{name}",
+    response_model=MessageResponse,
+    dependencies=[Depends(require_admin)],
+)
 async def update_scope(
     name: str,
     body: ScopeUpdateRequest,
@@ -109,7 +117,11 @@ async def update_scope(
     return MessageResponse(message=f"Scope '{name}' updated")
 
 
-@router.delete("/{name}", response_model=MessageResponse)
+@router.delete(
+    "/{name}",
+    response_model=MessageResponse,
+    dependencies=[Depends(require_admin)],
+)
 async def delete_scope(
     name: str,
     client: TechnitiumClient = Depends(get_technitium_client),
@@ -119,7 +131,11 @@ async def delete_scope(
     return MessageResponse(message=f"Scope '{name}' deleted")
 
 
-@router.post("/{name}/enable", response_model=MessageResponse)
+@router.post(
+    "/{name}/enable",
+    response_model=MessageResponse,
+    dependencies=[Depends(require_admin)],
+)
 async def enable_scope(
     name: str,
     client: TechnitiumClient = Depends(get_technitium_client),
@@ -129,7 +145,11 @@ async def enable_scope(
     return MessageResponse(message=f"Scope '{name}' enabled")
 
 
-@router.post("/{name}/disable", response_model=MessageResponse)
+@router.post(
+    "/{name}/disable",
+    response_model=MessageResponse,
+    dependencies=[Depends(require_admin)],
+)
 async def disable_scope(
     name: str,
     client: TechnitiumClient = Depends(get_technitium_client),
@@ -140,7 +160,8 @@ async def disable_scope(
 
 
 @router.post(
-    "/{name}/reservations", response_model=MessageResponse
+    "/{name}/reservations", response_model=MessageResponse,
+    dependencies=[Depends(require_admin)],
 )
 async def add_reservation(
     name: str,
@@ -167,6 +188,7 @@ async def add_reservation(
 @router.put(
     "/{name}/reservations/{mac}",
     response_model=MessageResponse,
+    dependencies=[Depends(require_admin)],
 )
 async def update_reservation(
     name: str,
@@ -191,6 +213,7 @@ async def update_reservation(
 @router.delete(
     "/{name}/reservations/{mac}",
     response_model=MessageResponse,
+    dependencies=[Depends(require_admin)],
 )
 async def remove_reservation(
     name: str,

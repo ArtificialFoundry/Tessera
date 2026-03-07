@@ -11,7 +11,7 @@ from tessera.api.schemas import (
     ServerInfo,
     ServersResponse,
 )
-from tessera.deps import get_technitium_pool
+from tessera.deps import get_technitium_pool, require_admin
 
 if TYPE_CHECKING:
     from tessera.engines.technitium import TechnitiumPool
@@ -33,6 +33,7 @@ async def list_servers(
 @router.post(
     "/servers/{name}/promote",
     response_model=PromoteDemoteResponse,
+    dependencies=[Depends(require_admin)],
 )
 async def promote_server(
     name: str,
@@ -50,6 +51,7 @@ async def promote_server(
 @router.post(
     "/servers/{name}/demote",
     response_model=PromoteDemoteResponse,
+    dependencies=[Depends(require_admin)],
 )
 async def demote_server(
     name: str,

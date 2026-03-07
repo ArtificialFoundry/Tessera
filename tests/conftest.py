@@ -18,6 +18,7 @@ from tessera.deps import (
     get_technitium_client,
     get_technitium_pool,
     get_voter_registry,
+    require_admin,
 )
 from tessera.engines.backup import BackupEngine
 from tessera.engines.enforcement import EnforcementEngine
@@ -158,6 +159,7 @@ async def client(
     app.dependency_overrides[get_backup_engine] = lambda: backup_engine
     app.dependency_overrides[get_enforcement_engine] = lambda: enforcement_engine
     app.dependency_overrides[get_voter_registry] = lambda: voter_registry
+    app.dependency_overrides[require_admin] = lambda: None
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c

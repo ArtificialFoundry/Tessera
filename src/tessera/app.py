@@ -22,6 +22,7 @@ from tessera.exceptions import (
     ErrorCode,
     NotFoundError,
     RateLimitError,
+    ServiceUnavailableError,
 )
 
 if TYPE_CHECKING:
@@ -257,6 +258,12 @@ def create_app() -> FastAPI:
     @app.exception_handler(AuthenticationError)
     async def _auth_handler(_req: Request, exc: AuthenticationError) -> JSONResponse:
         return _error_json(exc.code.value, str(exc), 401)
+
+    @app.exception_handler(ServiceUnavailableError)
+    async def _service_unavailable_handler(
+        _req: Request, exc: ServiceUnavailableError,
+    ) -> JSONResponse:
+        return _error_json(exc.code.value, str(exc), 503)
 
     @app.exception_handler(RateLimitError)
     async def _rate_limit_handler(_req: Request, exc: RateLimitError) -> JSONResponse:

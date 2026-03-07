@@ -19,7 +19,7 @@ from tessera.api.schemas import (
     RestoreResponse,
     ScopeSnapshotResponse,
 )
-from tessera.deps import get_backup_engine
+from tessera.deps import get_backup_engine, require_admin
 
 if TYPE_CHECKING:
     from tessera.engines.backup import BackupEngine
@@ -42,7 +42,11 @@ async def get_backup_settings(
     )
 
 
-@router.put("/settings", response_model=BackupSettingsResponse)
+@router.put(
+    "/settings",
+    response_model=BackupSettingsResponse,
+    dependencies=[Depends(require_admin)],
+)
 async def update_backup_settings(
     body: BackupSettingsRequest,
     engine: BackupEngine = Depends(get_backup_engine),
@@ -90,7 +94,11 @@ async def list_backups(
     )
 
 
-@router.post("", response_model=BackupManifestResponse)
+@router.post(
+    "",
+    response_model=BackupManifestResponse,
+    dependencies=[Depends(require_admin)],
+)
 async def create_backup(
     body: BackupCreateRequest,
     engine: BackupEngine = Depends(get_backup_engine),
@@ -126,7 +134,11 @@ async def get_backup(
     )
 
 
-@router.delete("/{backup_id}", response_model=MessageResponse)
+@router.delete(
+    "/{backup_id}",
+    response_model=MessageResponse,
+    dependencies=[Depends(require_admin)],
+)
 async def delete_backup(
     backup_id: str,
     engine: BackupEngine = Depends(get_backup_engine),
@@ -136,7 +148,11 @@ async def delete_backup(
     return MessageResponse(message=f"Backup '{backup_id}' deleted")
 
 
-@router.post("/{backup_id}/restore", response_model=RestoreResponse)
+@router.post(
+    "/{backup_id}/restore",
+    response_model=RestoreResponse,
+    dependencies=[Depends(require_admin)],
+)
 async def restore_backup(
     backup_id: str,
     body: RestoreRequest,

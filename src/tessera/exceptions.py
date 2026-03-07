@@ -139,3 +139,10 @@ class RegistrationError(AppError):
 
     def __init__(self, message: str = "Registration failed") -> None:
         super().__init__(message, code=ErrorCode.REGISTRATION_ERROR)
+
+
+class ServiceUnavailableError(AppError):
+    """A required service or configuration is not available."""
+
+    def __init__(self, message: str = "Service unavailable") -> None:
+        super().__init__(message, code=ErrorCode.INTERNAL_ERROR)

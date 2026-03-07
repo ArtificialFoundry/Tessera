@@ -14,7 +14,7 @@ from tessera.api.schemas import (
     MessageResponse,
     PaginationMeta,
 )
-from tessera.deps import get_technitium_client
+from tessera.deps import get_technitium_client, require_admin
 
 if TYPE_CHECKING:
     from tessera.engines.technitium import TechnitiumClient
@@ -100,7 +100,8 @@ async def scope_leases(
 
 
 @router.delete(
-    "/{scope_name}/{address}", response_model=MessageResponse
+    "/{scope_name}/{address}", response_model=MessageResponse,
+    dependencies=[Depends(require_admin)],
 )
 async def remove_lease(
     scope_name: str,
@@ -115,6 +116,7 @@ async def remove_lease(
 @router.post(
     "/{scope_name}/{address}/convert",
     response_model=MessageResponse,
+    dependencies=[Depends(require_admin)],
 )
 async def convert_lease(
     scope_name: str,

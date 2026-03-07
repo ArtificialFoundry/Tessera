@@ -16,7 +16,7 @@ from tessera.api.schemas import (
     PaginationMeta,
     PinBackupRequest,
 )
-from tessera.deps import get_enforcement_engine
+from tessera.deps import get_enforcement_engine, require_admin
 from tessera.engines.enforcement import EnforcementMode
 
 if TYPE_CHECKING:
@@ -61,7 +61,11 @@ async def get_enforcement_status(
     )
 
 
-@router.post("/mode", response_model=MessageResponse)
+@router.post(
+    "/mode",
+    response_model=MessageResponse,
+    dependencies=[Depends(require_admin)],
+)
 async def set_enforcement_mode(
     body: EnforcementModeRequest,
     engine: EnforcementEngine = Depends(get_enforcement_engine),
@@ -84,7 +88,11 @@ async def set_enforcement_mode(
     )
 
 
-@router.post("/pin", response_model=MessageResponse)
+@router.post(
+    "/pin",
+    response_model=MessageResponse,
+    dependencies=[Depends(require_admin)],
+)
 async def pin_backup(
     body: PinBackupRequest,
     engine: EnforcementEngine = Depends(get_enforcement_engine),
@@ -96,7 +104,11 @@ async def pin_backup(
     )
 
 
-@router.post("/unpin", response_model=MessageResponse)
+@router.post(
+    "/unpin",
+    response_model=MessageResponse,
+    dependencies=[Depends(require_admin)],
+)
 async def unpin_backup(
     engine: EnforcementEngine = Depends(get_enforcement_engine),
 ) -> MessageResponse:
@@ -107,7 +119,11 @@ async def unpin_backup(
     )
 
 
-@router.post("/check", response_model=DriftCheckResponse)
+@router.post(
+    "/check",
+    response_model=DriftCheckResponse,
+    dependencies=[Depends(require_admin)],
+)
 async def check_drift(
     engine: EnforcementEngine = Depends(get_enforcement_engine),
 ) -> DriftCheckResponse:
@@ -123,7 +139,11 @@ async def check_drift(
     )
 
 
-@router.put("/settings", response_model=MessageResponse)
+@router.put(
+    "/settings",
+    response_model=MessageResponse,
+    dependencies=[Depends(require_admin)],
+)
 async def update_enforcement_settings(
     body: EnforcementSettingsRequest,
     engine: EnforcementEngine = Depends(get_enforcement_engine),
@@ -138,7 +158,11 @@ async def update_enforcement_settings(
     return MessageResponse(message="Enforcement settings updated")
 
 
-@router.post("/accept", response_model=AcceptDriftResponse)
+@router.post(
+    "/accept",
+    response_model=AcceptDriftResponse,
+    dependencies=[Depends(require_admin)],
+)
 async def accept_drift(
     engine: EnforcementEngine = Depends(get_enforcement_engine),
 ) -> AcceptDriftResponse:

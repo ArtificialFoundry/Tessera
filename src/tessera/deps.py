@@ -6,10 +6,13 @@ override them cleanly without ``unittest.mock.patch``.
 
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 from functools import lru_cache
 from pathlib import Path
+
+from fastapi import Depends, Request
 
 from tessera.config import Settings
 from tessera.engines.backup import BackupEngine
@@ -19,7 +22,7 @@ from tessera.engines.failover import FailoverEngine
 from tessera.engines.scope_sync import ScopeSyncEngine
 from tessera.engines.technitium import TechnitiumClient, TechnitiumPool
 from tessera.engines.voter_registry import VoterRegistryEngine
-from tessera.exceptions import AppError
+from tessera.exceptions import AppError, AuthenticationError, ServiceUnavailableError
 from tessera.registry import EngineRegistry, ModuleRegistry
 from tessera.settings_store import SettingsStore
 
@@ -187,3 +190,22 @@ def get_voter_registry() -> VoterRegistryEngine:
 def get_module_registry() -> ModuleRegistry:
     """Return the singleton module registry."""
     return ModuleRegistry()
+
+
+async def require_admin(
+    request: Request,
+    settings: Settings = Depends(get_settings),  # noqa: B008
+) -> None:
+    """Verify the request carries a valid admin API key.
+
+    Raises ``ServiceUnavailableError`` when the key is not configured
+    and ``AuthenticationError`` when the token is missing or invalid.
+    """
+    if not settings.admin_api_key:
+        raise ServiceUnavailableError("Admin API key not configured")
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        raise AuthenticationError("Missing Bearer token")
+    token = auth.removeprefix("Bearer ").strip()
+    if not hmac.compare_digest(token, settings.admin_api_key):
+        raise AuthenticationError("Invalid API key")

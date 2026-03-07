@@ -103,6 +103,9 @@ class Settings(BaseSettings):
     auto_approve_voters: bool = False
     voter_registry_file: Path = Path("/var/lib/tessera/voter-registry.json")
 
+    # Admin authentication
+    admin_api_key: str = ""
+
     # CORS
     cors_origins: list[str] = []
 

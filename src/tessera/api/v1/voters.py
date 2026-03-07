@@ -19,7 +19,7 @@ from tessera.api.schemas import (
     VoterRegisterResponse,
     VoterRevokeResponse,
 )
-from tessera.deps import get_voter_registry
+from tessera.deps import get_voter_registry, require_admin
 
 if TYPE_CHECKING:
     from tessera.engines.voter_registry import VoterRegistryEngine
@@ -30,6 +30,7 @@ router = APIRouter()
 @router.post(
     "/voters/tokens",
     response_model=RegistrationTokenResponse,
+    dependencies=[Depends(require_admin)],
 )
 async def generate_token(
     body: RegistrationTokenRequest,
@@ -148,6 +149,7 @@ async def list_pending(
 @router.post(
     "/voters/{name}/approve",
     response_model=VoterApproveResponse,
+    dependencies=[Depends(require_admin)],
 )
 async def approve_voter(
     name: str,
@@ -166,6 +168,7 @@ async def approve_voter(
 @router.post(
     "/voters/{name}/revoke",
     response_model=VoterRevokeResponse,
+    dependencies=[Depends(require_admin)],
 )
 async def revoke_voter(
     name: str,
@@ -183,6 +186,7 @@ async def revoke_voter(
 @router.delete(
     "/voters/{name}",
     response_model=VoterRevokeResponse,
+    dependencies=[Depends(require_admin)],
 )
 async def delete_voter(
     name: str,
@@ -195,6 +199,7 @@ async def delete_voter(
 @router.post(
     "/voters/{name}/rotate-key",
     response_model=KeyRotateResponse,
+    dependencies=[Depends(require_admin)],
 )
 async def rotate_key(
     name: str,
