@@ -2,6 +2,19 @@
 name = "tessera"
 version = "0.1.0"
 description = "DHCP management and failover platform for Technitium DNS Server."
+license = "GPL-3.0-only"
+authors = [
+    {name = "Naimul Hasan", email = "23284131+agent47nh@users.noreply.github.com"},
+]
+keywords = ["dhcp", "failover", "technitium", "dns", "network"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Networking",
+    "Topic :: System :: Systems Administration",
+]
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115,<1",

@@ -96,7 +96,53 @@ Generate PSKs: `openssl rand -hex 32`
 
 ## Voter Agent Deployment
 
-### Automated install
+### Docker (recommended)
+
+Create `voter.conf`:
+
+```bash
+VOTER_NAME="voter-1"
+VOTER_PSK="<hex-psk>"
+TESSERA_URL="http://tessera-host:8780"
+CHECK_TIMEOUT="5"
+DHCP_TIMEOUT="5"
+```
+
+Using Docker Compose (from repo root):
+
+```bash
+cp /path/to/voter.conf voter/voter.conf
+docker compose -f voter/docker-compose.yml up -d
+```
+
+Or standalone:
+
+```bash
+docker build -f voter/Dockerfile -t tessera-voter:latest .
+
+docker run -d \
+  --name tessera-voter \
+  --network host \
+  --cap-add NET_RAW \
+  --cap-add NET_ADMIN \
+  --restart unless-stopped \
+  -v $(pwd)/voter.conf:/etc/tessera/voter.conf:ro \
+  -e VOTER_INTERVAL=30 \
+  tessera-voter:latest
+```
+
+**Requirements:**
+- `--network host` — needed for DHCP broadcast on the host's network interface
+- `NET_RAW` + `NET_ADMIN` — needed for nmap raw packet DHCP probe
+- Container runs as root (single-purpose, sends raw packets)
+
+Check logs:
+
+```bash
+docker logs -f tessera-voter
+```
+
+### Automated bare-metal install
 
 On each voter VM:
 

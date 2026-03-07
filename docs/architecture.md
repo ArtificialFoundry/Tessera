@@ -91,7 +91,10 @@ frontend/                   # Preact + TypeScript + Vite
 └── package.json
 
 voter/
-├── tessera-install-voter.sh  # Automated installer (nmap, systemd, SELinux)
+├── Dockerfile                # Alpine-based voter container
+├── docker-compose.yml        # Compose for containerised voter
+├── entrypoint.sh             # Loop entrypoint (interval-based)
+├── tessera-install-voter.sh  # Automated bare-metal installer (nmap, systemd, SELinux)
 ├── tessera-voter.sh          # Bash voter agent (dual health checks)
 ├── tessera-voter.service     # systemd oneshot unit
 └── tessera-voter.timer       # systemd timer (30s)

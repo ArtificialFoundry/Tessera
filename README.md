@@ -353,7 +353,46 @@ Voters are lightweight bash agents deployed on infrastructure VMs. Each voter
 independently checks active DHCP health and submits a signed vote to Tessera
 every 30 seconds.
 
-### Quick install
+### Docker (recommended)
+
+Create a `voter.conf`:
+
+```bash
+VOTER_NAME="voter-1"
+VOTER_PSK="<hex-psk-from-registration>"
+TESSERA_URL="http://tessera-host:8780"
+CHECK_TIMEOUT="5"
+DHCP_TIMEOUT="5"
+```
+
+Run with Docker Compose:
+
+```bash
+cd voter
+cp /path/to/your/voter.conf ./voter.conf
+docker compose up -d
+```
+
+Or run directly:
+
+```bash
+docker build -f voter/Dockerfile -t tessera-voter:latest .
+
+docker run -d \
+  --name tessera-voter \
+  --network host \
+  --cap-add NET_RAW \
+  --cap-add NET_ADMIN \
+  --restart unless-stopped \
+  -v /path/to/voter.conf:/etc/tessera/voter.conf:ro \
+  -e VOTER_INTERVAL=30 \
+  tessera-voter:latest
+```
+
+> **Note:** `--network host` and `NET_RAW`/`NET_ADMIN` capabilities are required for the
+> DHCP broadcast probe (nmap). The container runs as root to send raw packets.
+
+### Bare metal — quick install
 
 ```bash
 sudo ./voter/tessera-install-voter.sh \
@@ -361,7 +400,7 @@ sudo ./voter/tessera-install-voter.sh \
   --active-ip 192.0.2.1
 ```
 
-### Auto-register with one-time token
+### Bare metal — auto-register with one-time token
 
 ```bash
 sudo ./voter/tessera-install-voter.sh \
@@ -628,7 +667,10 @@ frontend/               # Preact + TypeScript + Vite
 │   └── styles/tessera.css    # Design system
 
 voter/
-├── tessera-install-voter.sh  # Automated installer
+├── Dockerfile                # Alpine-based voter container
+├── docker-compose.yml        # Compose for containerised voter
+├── entrypoint.sh             # Loop entrypoint (interval-based)
+├── tessera-install-voter.sh  # Automated bare-metal installer
 ├── tessera-voter.sh          # Voter agent (dual health checks)
 ├── tessera-voter.service     # systemd oneshot unit
 └── tessera-voter.timer       # systemd timer (30s)

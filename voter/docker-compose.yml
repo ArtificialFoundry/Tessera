@@ -1,0 +1,35 @@
+# Tessera Voter Agent — Docker Compose
+#
+# Runs a containerised voter that checks DHCP health and submits
+# signed votes to a Tessera server every 30 seconds.
+#
+# Setup:
+#   1. Create voter.conf (see below)
+#   2. docker compose -f voter/docker-compose.yml up -d
+#
+# voter.conf example:
+#   VOTER_NAME="voter-1"
+#   VOTER_PSK="<hex-psk>"
+#   TESSERA_URL="http://tessera-host:8780"
+#   CHECK_TIMEOUT="5"
+#   DHCP_TIMEOUT="5"
+#   DHCP_INTERFACE="eth0"
+
+name: tessera-voter
+
+services:
+  voter:
+    build:
+      context: ..
+      dockerfile: voter/Dockerfile
+    image: tessera-voter:latest
+    container_name: tessera-voter
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    environment:
+      - VOTER_INTERVAL=30
+    volumes:
+      - ./voter.conf:/etc/tessera/voter.conf:ro
