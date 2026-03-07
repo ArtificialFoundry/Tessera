@@ -99,6 +99,8 @@ function Nav({ activeTab }: { activeTab: string }) {
     { id: "failover", label: "Failover", href: "/failover" },
     { id: "dhcp", label: "DHCP", href: "/dhcp" },
     { id: "protection", label: "Protection", href: "/protection" },
+    { id: "servers", label: "Servers", href: "/servers" },
+    { id: "voters", label: "Voters", href: "/voters" },
   ];
 
   return (

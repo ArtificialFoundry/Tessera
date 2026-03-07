@@ -15,6 +15,8 @@ export default defineConfig({
         failover: resolve(__dirname, "src/pages/failover.tsx"),
         dhcp: resolve(__dirname, "src/pages/dhcp.tsx"),
         protection: resolve(__dirname, "src/pages/protection.tsx"),
+        servers: resolve(__dirname, "src/pages/servers.tsx"),
+        voters: resolve(__dirname, "src/pages/voters.tsx"),
       },
       output: {
         entryFileNames: "[name].[hash].js",

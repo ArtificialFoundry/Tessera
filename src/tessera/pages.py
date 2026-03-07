@@ -100,3 +100,15 @@ async def dhcp_page(request: Request) -> HTMLResponse:
 async def protection_page(request: Request) -> HTMLResponse:
     """Render the protection (backup/enforcement) page."""
     return templates.TemplateResponse("page.html", _ctx(request, "protection"))
+
+
+@router.get("/servers", response_class=HTMLResponse, include_in_schema=False)
+async def servers_page(request: Request) -> HTMLResponse:
+    """Render the servers management page."""
+    return templates.TemplateResponse("page.html", _ctx(request, "servers"))
+
+
+@router.get("/voters", response_class=HTMLResponse, include_in_schema=False)
+async def voters_page(request: Request) -> HTMLResponse:
+    """Render the voter management page."""
+    return templates.TemplateResponse("page.html", _ctx(request, "voters"))

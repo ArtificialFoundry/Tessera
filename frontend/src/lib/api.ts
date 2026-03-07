@@ -159,6 +159,80 @@ export interface BackupSettings {
   backup_dir: string;
 }
 
+// -- Server types ------------------------------------------------------------
+
+export interface ServerInfo {
+  name: string;
+  url: string;
+  role: string;
+  priority: number;
+  status: string;
+  message: string;
+}
+
+export interface ServersResponse {
+  servers: ServerInfo[];
+}
+
+export interface PromoteDemoteResponse {
+  name: string;
+  new_role: string;
+  message: string;
+}
+
+// -- Voter types -------------------------------------------------------------
+
+export interface VoterInfoDetail {
+  name: string;
+  registered_at: number;
+  approved_at: number | null;
+  status: string;
+  last_vote: number;
+  ip_address: string;
+}
+
+export interface VoterListResponse {
+  voters: VoterInfoDetail[];
+}
+
+export interface VoterApproveResponse {
+  voter_name: string;
+  psk: string;
+  status: string;
+}
+
+export interface VoterRevokeResponse {
+  voter_name: string;
+  status: string;
+}
+
+export interface RegistrationTokenResponse {
+  token: string;
+  created_at: number;
+  expires_at: number;
+  bind_ip: string | null;
+}
+
+export interface RegistrationTokenInfo {
+  token: string;
+  created_at: number;
+  expires_at: number;
+  used: boolean;
+  used_by: string | null;
+  bind_ip: string | null;
+}
+
+export interface RegistrationTokenListResponse {
+  tokens: RegistrationTokenInfo[];
+}
+
+export interface KeyRotateResponse {
+  voter_name: string;
+  new_psk: string;
+  grace_period: number;
+  message: string;
+}
+
 // -- API functions -----------------------------------------------------------
 
 export const api = {
@@ -209,6 +283,21 @@ export const api = {
   updateEnforcementSettings: (body: Record<string, unknown>) =>
     request<{ message: string }>("/enforcement/settings", { method: "PUT", body: JSON.stringify(body) }),
   acceptDrift: () => request<{ new_backup_id: string; message: string }>("/enforcement/accept", { method: "POST" }),
+
+  // Servers
+  listServers: () => request<ServersResponse>("/servers"),
+  promoteServer: (name: string) => request<PromoteDemoteResponse>(`/servers/${enc(name)}/promote`, { method: "POST" }),
+  demoteServer: (name: string) => request<PromoteDemoteResponse>(`/servers/${enc(name)}/demote`, { method: "POST" }),
+
+  // Voters
+  listVoters: () => request<VoterListResponse>("/voters"),
+  listPendingVoters: () => request<VoterListResponse>("/voters/pending"),
+  generateToken: (opts?: { bind_ip?: string; ttl?: number }) => request<RegistrationTokenResponse>("/voters/tokens", post(opts ?? {})),
+  listTokens: () => request<RegistrationTokenListResponse>("/voters/tokens"),
+  approveVoter: (name: string) => request<VoterApproveResponse>(`/voters/${enc(name)}/approve`, { method: "POST" }),
+  revokeVoter: (name: string) => request<VoterRevokeResponse>(`/voters/${enc(name)}/revoke`, { method: "POST" }),
+  deleteVoter: (name: string) => request<VoterRevokeResponse>(`/voters/${enc(name)}`, { method: "DELETE" }),
+  rotateVoterKey: (name: string) => request<KeyRotateResponse>(`/voters/${enc(name)}/rotate-key`, { method: "POST" }),
 } as const;
 
 function enc(s: string): string {
