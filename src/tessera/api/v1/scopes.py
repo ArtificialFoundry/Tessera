@@ -183,6 +183,35 @@ async def add_reservation(
     )
 
 
+@router.put("/{name}/reservations/{mac}", response_model=MessageResponse)
+async def update_reservation(
+    name: str,
+    mac: str,
+    body: ReservationRequest,
+    client: TechnitiumClient = Depends(get_technitium_client),
+) -> MessageResponse:
+    """Update an existing DHCP reservation.
+
+    The MAC in the URL identifies the reservation to update. The body
+    can change the IP, hostname, and comments. To change the MAC itself,
+    delete and re-create.
+    """
+    try:
+        await client.add_reservation(
+            name,
+            hardware_address=mac,
+            address=body.address,
+            host_name=body.host_name,
+            comments=body.comments,
+        )
+    except TechnitiumError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return MessageResponse(
+        message=f"Reservation updated: {mac} → {body.address}"
+    )
+
+
 @router.delete("/{name}/reservations/{mac}", response_model=MessageResponse)
 async def remove_reservation(
     name: str,
