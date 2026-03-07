@@ -38,74 +38,40 @@ async function refresh() {
 
 const poller = poll(async () => { await refresh(); return null; }, signal(null), 5_000);
 
-// -- Merged voter model ------------------------------------------------------
+// -- Enriched voter (registry + live vote overlay) ---------------------------
 
-interface MergedVoter {
-  name: string;
-  /** Registry info (null if config-only voter) */
-  registry: VoterInfoDetail | null;
-  /** Live failover vote info (null if not currently voting) */
-  live: (VoterInfo & { name: string }) | null;
-  source: "registry" | "config-only" | "both";
+interface EnrichedVoter extends VoterInfoDetail {
+  live: VoterInfo | null;
 }
 
-function mergeVoters(reg: VoterInfoDetail[], live: Record<string, VoterInfo>): MergedVoter[] {
-  const merged = new Map<string, MergedVoter>();
-
-  for (const v of reg) {
-    merged.set(v.name, { name: v.name, registry: v, live: null, source: "registry" });
-  }
-
-  for (const [name, info] of Object.entries(live)) {
-    const existing = merged.get(name);
-    if (existing) {
-      existing.live = { name, ...info };
-      existing.source = "both";
-    } else {
-      merged.set(name, { name, registry: null, live: { name, ...info }, source: "config-only" });
-    }
-  }
-
-  // Sort: pending first, then by name
-  return [...merged.values()].sort((a, b) => {
-    const aP = a.registry?.status === "pending" ? 0 : 1;
-    const bP = b.registry?.status === "pending" ? 0 : 1;
-    if (aP !== bP) return aP - bP;
-    return a.name.localeCompare(b.name);
-  });
+function enrichVoters(reg: VoterInfoDetail[], liveMap: Record<string, VoterInfo>): EnrichedVoter[] {
+  return reg.map((v) => ({ ...v, live: liveMap[v.name] ?? null }));
 }
 
-// -- Helpers -----------------------------------------------------------------
-
-function isLiveOnline(v: VoterInfo | null): boolean {
+function isOnline(v: VoterInfo | null): boolean {
   if (!v?.received_at) return false;
   return Date.now() / 1000 - v.received_at <= 120;
 }
 
-function liveStatusDot(live: VoterInfo | null): string {
+function liveDot(live: VoterInfo | null): string {
   if (!live) return "dormant";
-  if (!isLiveOnline(live)) return "offline";
+  if (!isOnline(live)) return "offline";
   return live.status === "up" ? "online" : "warn";
 }
 
 function liveLabel(live: VoterInfo | null): string {
   if (!live) return "No votes yet";
-  if (!isLiveOnline(live)) return "Offline";
+  if (!isOnline(live)) return `Offline · last ${timeAgo(live.received_at)}`;
   return live.status === "up" ? "Voting UP" : "Voting DOWN";
 }
 
-function adminStatusColor(s: string | undefined): string {
+function statusColor(s: string): string {
   if (s === "approved") return "var(--green)";
   if (s === "pending") return "var(--yellow)";
-  if (s === "revoked") return "var(--red)";
-  return "var(--text-dim)";
+  return "var(--red)";
 }
 
-function adminBadge(v: MergedVoter) {
-  if (!v.registry) return <span class="badge badge-dim">config-only</span>;
-  const s = v.registry.status;
-  return <span class="voter-status" style={`color:${adminStatusColor(s)}`}>{s}</span>;
-}
+// -- Helpers -----------------------------------------------------------------
 
 async function copyText(text: string) {
   try {
@@ -228,64 +194,63 @@ function TokenBanner() {
   );
 }
 
-function VoterRow({ v }: { v: MergedVoter }) {
+function VoterRow({ v }: { v: EnrichedVoter }) {
   const isBusy = busy.value === v.name;
-  const isPending = v.registry?.status === "pending";
-  const isApproved = v.registry?.status === "approved";
-  const isConfigOnly = v.source === "config-only";
-  const dotClass = liveStatusDot(v.live);
+  const isPending = v.status === "pending";
+  const isApproved = v.status === "approved";
+  const dot = liveDot(v.live);
 
   return (
     <tr class={isPending ? "row-pending" : undefined}>
       <td>
         <div style="display:flex;align-items:center;gap:8px">
-          <span class={`dot ${dotClass}`} />
-          <div>
-            <strong>{v.name}</strong>
-            {isConfigOnly && <div style="font-size:10px;color:var(--text-dim)">via config file</div>}
-          </div>
+          <span class={`dot ${dot}`} />
+          <strong>{v.name}</strong>
         </div>
       </td>
-      <td>{adminBadge(v)}</td>
+      <td><span class="voter-status" style={`color:${statusColor(v.status)}`}>{v.status}</span></td>
+      <td><span class={`live-status ${dot}`}>{liveLabel(v.live)}</span></td>
+      <td style="font-size:12px">{v.ip_address || "—"}</td>
+      <td style="font-size:12px" title={formatTime(v.registered_at)}>{timeAgo(v.registered_at)}</td>
       <td>
-        <span class={`live-status ${dotClass}`}>{liveLabel(v.live)}</span>
-      </td>
-      <td style="font-size:12px">{v.registry?.ip_address || "—"}</td>
-      <td style="font-size:12px" title={v.live?.received_at ? formatTime(v.live.received_at) : undefined}>
-        {v.live?.received_at ? timeAgo(v.live.received_at) : "—"}
-      </td>
-      <td style="font-size:12px" title={v.registry ? formatTime(v.registry.registered_at) : undefined}>
-        {v.registry ? timeAgo(v.registry.registered_at) : "—"}
-      </td>
-      <td>
-        {isConfigOnly ? (
-          <span style="font-size:11px;color:var(--text-dim)">Managed via config</span>
-        ) : (
-          <div style="display:flex;gap:4px;flex-wrap:wrap">
-            {isPending && (
-              <>
-                <button class="btn btn-xs btn-accent" disabled={isBusy} onClick={() => approveVoter(v.name)}>Approve</button>
-                <button class="btn btn-xs btn-danger" disabled={isBusy} onClick={() => showConfirm("Reject Voter", `Delete pending voter ${v.name}?`, "Reject", () => deleteVoter(v.name))}>Reject</button>
-              </>
-            )}
-            {isApproved && (
-              <>
-                <button class="btn btn-xs btn-ghost" disabled={isBusy} onClick={() => showConfirm("Revoke Voter", `Revoke ${v.name}? It will stop accepting their votes.`, "Revoke", () => revokeVoter(v.name))}>Revoke</button>
-                <button class="btn btn-xs btn-ghost" disabled={isBusy} onClick={() => rotateKey(v.name)}>Rotate Key</button>
-              </>
-            )}
-            {!isPending && (
-              <button class="btn btn-xs btn-danger" disabled={isBusy} onClick={() => showConfirm("Delete Voter", `Permanently delete ${v.name}?`, "Delete", () => deleteVoter(v.name))}>Delete</button>
-            )}
-          </div>
-        )}
+        <div style="display:flex;gap:4px;flex-wrap:wrap">
+          {isPending && (
+            <>
+              <button class="btn btn-xs btn-accent" disabled={isBusy} onClick={() => approveVoter(v.name)}>Approve</button>
+              <button class="btn btn-xs btn-danger" disabled={isBusy} onClick={() => showConfirm("Reject Voter", `Delete pending voter ${v.name}?`, "Reject", () => deleteVoter(v.name))}>Reject</button>
+            </>
+          )}
+          {isApproved && (
+            <>
+              <button class="btn btn-xs btn-ghost" disabled={isBusy} onClick={() => showConfirm("Revoke Voter", `Revoke ${v.name}? Their votes will no longer be accepted.`, "Revoke", () => revokeVoter(v.name))}>Revoke</button>
+              <button class="btn btn-xs btn-ghost" disabled={isBusy} onClick={() => rotateKey(v.name)}>Rotate Key</button>
+            </>
+          )}
+          {!isPending && (
+            <button class="btn btn-xs btn-danger" disabled={isBusy} onClick={() => showConfirm("Delete Voter", `Permanently delete ${v.name}?`, "Delete", () => deleteVoter(v.name))}>Delete</button>
+          )}
+        </div>
       </td>
     </tr>
   );
 }
 
+async function deleteToken(prefix: string) {
+  busy.value = "del-token";
+  try {
+    await api.deleteToken(prefix);
+    toast("Token deleted", "success");
+    await refresh();
+  } catch (e: unknown) {
+    toast(String((e as Error).message), "error");
+  } finally {
+    busy.value = null;
+  }
+}
+
 function TokenRow({ t }: { t: RegistrationTokenInfo }) {
   const expired = t.expires_at > 0 && t.expires_at < Date.now() / 1000;
+  const canDelete = !t.used;
   return (
     <tr style={t.used || expired ? "opacity:0.5" : undefined}>
       <td>
@@ -296,6 +261,11 @@ function TokenRow({ t }: { t: RegistrationTokenInfo }) {
       <td style="font-size:12px">{formatTime(t.created_at)}</td>
       <td style="font-size:12px">{t.expires_at > 0 ? formatTime(t.expires_at) : "never"}</td>
       <td>{t.used ? <span style="color:var(--text-dim)">Used by {t.used_by}</span> : expired ? <span style="color:var(--red)">Expired</span> : <span style="color:var(--green)">Available</span>}</td>
+      <td>
+        {canDelete && (
+          <button class="btn btn-xs btn-danger" disabled={busy.value === "del-token"} onClick={() => showConfirm("Delete Token", "Delete this registration token?", "Delete", () => deleteToken(t.token))}>Delete</button>
+        )}
+      </td>
     </tr>
   );
 }
@@ -309,13 +279,13 @@ function VotersPage() {
   const f = failover.value;
   const t = tokens.value;
 
-  if (!v || !f) return <Shell activeTab="voters"><div class="empty">Loading…</div></Shell>;
+  if (!v) return <Shell activeTab="voters"><div class="empty">Loading…</div></Shell>;
 
-  const liveVoters = f.voters ?? {};
-  const merged = mergeVoters(v.voters, liveVoters);
-  const pendingCount = merged.filter((m) => m.registry?.status === "pending").length;
-  const approvedCount = merged.filter((m) => m.registry?.status === "approved").length;
-  const onlineCount = merged.filter((m) => isLiveOnline(m.live)).length;
+  const liveMap = f?.voters ?? {};
+  const enriched = enrichVoters(v.voters, liveMap);
+  const approvedCount = enriched.filter((x) => x.status === "approved").length;
+  const pendingCount = enriched.filter((x) => x.status === "pending").length;
+  const onlineCount = enriched.filter((x) => isOnline(x.live)).length;
   const tokenList = t?.tokens ?? [];
   const activeTokens = tokenList.filter((x) => !x.used && (x.expires_at <= 0 || x.expires_at > Date.now() / 1000));
 
@@ -326,8 +296,8 @@ function VotersPage() {
 
       <div class="metrics-bar fade-up fade-up-1">
         <div class="card metric">
-          <div class="metric-value">{merged.length}</div>
-          <div class="metric-label">Total Voters</div>
+          <div class="metric-value">{enriched.length}</div>
+          <div class="metric-label">Registered</div>
         </div>
         <div class="card metric">
           <div class="metric-value" style="color:var(--green)">{onlineCount}</div>
@@ -347,26 +317,25 @@ function VotersPage() {
         </div>
       </div>
 
-      {/* Unified voter table */}
+      {/* Voter table */}
       <div class="section-title fade-up fade-up-2">🗳️ Voters</div>
-      {merged.length === 0 ? (
-        <div class="card empty fade-up fade-up-2">No voters yet. Generate a registration token below to onboard your first voter.</div>
+      {enriched.length === 0 ? (
+        <div class="card empty fade-up fade-up-2">No voters registered yet. Generate a token below to onboard your first voter.</div>
       ) : (
         <div class="card fade-up fade-up-2" style="overflow-x:auto">
           <table class="data-table">
             <thead>
               <tr>
                 <th>Voter</th>
-                <th>Admin Status</th>
-                <th>Live Status</th>
+                <th>Status</th>
+                <th>Health</th>
                 <th>IP</th>
-                <th>Last Seen</th>
                 <th>Registered</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {merged.map((mv) => <VoterRow key={mv.name} v={mv} />)}
+              {enriched.map((ev) => <VoterRow key={ev.name} v={ev} />)}
             </tbody>
           </table>
         </div>
@@ -416,6 +385,7 @@ function VotersPage() {
                 <th>Created</th>
                 <th>Expires</th>
                 <th>Status</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>

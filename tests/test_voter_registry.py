@@ -86,7 +86,7 @@ class TestRegistrationTokenSecurity:
         await registry.start()
         token = registry.generate_token()
         record, psk = registry.register_voter("test-vm", token.token)
-        assert record.status == "active"
+        assert record.status == "approved"
         assert psk is not None
 
 
@@ -207,7 +207,7 @@ class TestVoterLifecycle:
     ) -> None:
         token = auto_registry.generate_token()
         record, psk = auto_registry.register_voter("host-1", token.token)
-        assert record.status == "active"
+        assert record.status == "approved"
         assert psk is not None
         assert len(psk) == 64
 
@@ -217,7 +217,7 @@ class TestVoterLifecycle:
         token = registry.generate_token()
         registry.register_voter("host-1", token.token)
         record, psk = registry.approve_voter("host-1")
-        assert record.status == "active"
+        assert record.status == "approved"
         assert psk is not None
 
     def test_revoke_active_voter(self, registry: VoterRegistryEngine) -> None:
@@ -466,7 +466,7 @@ class TestVotersAPI:
         )
         resp = await client.post("/api/v1/voters/approve-host/approve")
         assert resp.status_code == 200
-        assert resp.json()["status"] == "active"
+        assert resp.json()["status"] == "approved"
         assert len(resp.json()["psk"]) == 64
 
     @pytest.mark.asyncio

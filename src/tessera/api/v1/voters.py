@@ -73,6 +73,19 @@ async def list_tokens(
     )
 
 
+@router.delete(
+    "/voters/tokens/{token_prefix}",
+    dependencies=[Depends(require_admin)],
+)
+async def delete_token(
+    token_prefix: str,
+    registry: VoterRegistryEngine = Depends(get_voter_registry),
+) -> dict[str, str]:
+    """Delete a registration token by hash prefix."""
+    registry.delete_token(token_prefix)
+    return {"message": "Token deleted"}
+
+
 @router.post(
     "/voters/register",
     response_model=VoterRegisterResponse,
@@ -185,15 +198,15 @@ async def revoke_voter(
 
 @router.delete(
     "/voters/{name}",
-    response_model=VoterRevokeResponse,
     dependencies=[Depends(require_admin)],
 )
 async def delete_voter(
     name: str,
     registry: VoterRegistryEngine = Depends(get_voter_registry),
-) -> VoterRevokeResponse:
-    """Delete (revoke) a voter. Alias for revoke."""
-    return await revoke_voter(name, registry)
+) -> dict[str, str]:
+    """Permanently delete a voter record."""
+    registry.delete_voter(name)
+    return {"voter_name": name, "message": "Voter deleted"}
 
 
 @router.post(

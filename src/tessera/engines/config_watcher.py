@@ -31,7 +31,6 @@ class ConfigWatcherEngine(Engine):
     """Watches config files for changes and hot-reloads them.
 
     Monitored files:
-    - voter_keys_file: JSON mapping voter name → PSK
     - servers_file: JSON list of DhcpServer configs
     - token_file: API token (plain text)
     - reg_tokens_file: Registration token store
@@ -49,14 +48,12 @@ class ConfigWatcherEngine(Engine):
         self,
         *,
         check_interval: int = 10,
-        voter_keys_file: Path | None = None,
         servers_file: Path | None = None,
         token_file: Path | None = None,
         reg_tokens_file: Path | None = None,
     ) -> None:
         super().__init__()
         self._check_interval = check_interval
-        self._voter_keys_file = voter_keys_file
         self._servers_file = servers_file
         self._token_file = token_file
         self._reg_tokens_file = reg_tokens_file
@@ -133,8 +130,6 @@ class ConfigWatcherEngine(Engine):
     def _watched_paths(self) -> list[Path]:
         """Return list of paths being watched."""
         paths: list[Path] = []
-        if self._voter_keys_file:
-            paths.append(self._voter_keys_file)
         if self._servers_file:
             paths.append(self._servers_file)
         if self._token_file:
@@ -176,9 +171,7 @@ class ConfigWatcherEngine(Engine):
         logger.info("Config change detected: %s", path)
 
         try:
-            if self._voter_keys_file and path == self._voter_keys_file:
-                await self._reload_voter_keys(path)
-            elif self._servers_file and path == self._servers_file:
+            if self._servers_file and path == self._servers_file:
                 await self._reload_servers(path)
             elif self._token_file and path == self._token_file:
                 self._reload_token(path)
@@ -192,25 +185,6 @@ class ConfigWatcherEngine(Engine):
         except Exception as exc:
             self._last_error = f"Failed to reload {path.name}: {exc}"
             logger.exception("Failed to reload config file: %s", path)
-
-    async def _reload_voter_keys(self, path: Path) -> None:
-        """Reload voter keys from JSON file."""
-        text = path.read_text()
-        new_keys: dict[str, str] = json.loads(text)
-        if not isinstance(new_keys, dict):
-            logger.error("voter keys file is not a JSON object: %s", path)
-            return
-
-        if self._failover_engine:
-            old_voters = set(self._failover_engine.config.get("voters", []))
-            new_voters = set(new_keys.keys())
-            added = new_voters - old_voters
-            removed = old_voters - new_voters
-            self._failover_engine.update_voter_keys(new_keys)
-            if added:
-                logger.info("Voters added: %s", ", ".join(sorted(added)))
-            if removed:
-                logger.info("Voters removed: %s", ", ".join(sorted(removed)))
 
     async def _reload_servers(self, path: Path) -> None:
         """Reload server configs from JSON file."""

@@ -7,7 +7,6 @@ override them cleanly without ``unittest.mock.patch``.
 from __future__ import annotations
 
 import hmac
-import json
 import logging
 from functools import lru_cache
 from pathlib import Path
@@ -48,12 +47,8 @@ def get_engine_registry() -> EngineRegistry:
     except FileNotFoundError:
         logger.warning("API token file not found: %s", settings.api_token_file)
 
-    # Load voter keys
-    voter_keys: dict[str, str] = {}
-    try:
-        voter_keys = json.loads(settings.voter_keys_file.read_text())
-    except FileNotFoundError:
-        logger.warning("Voter keys file not found: %s", settings.voter_keys_file)
+    # Voter keys are managed exclusively by the voter registry engine.
+    # The voter_keys_file is written by the registry and read by it on start.
 
     # Create multi-server pool
     servers = settings.get_servers()
@@ -65,13 +60,12 @@ def get_engine_registry() -> EngineRegistry:
     active_client = pool.get_active()
     registry.register(active_client)
 
-    # Failover engine
+    # Failover engine — voter keys will be injected by voter registry on start
     failover = FailoverEngine(
         quorum=settings.quorum,
         failover_rounds=settings.failover_rounds,
         failback_rounds=settings.failback_rounds,
         vote_ttl=settings.vote_ttl,
-        voter_keys=voter_keys,
     )
     failover.set_pool(pool)
     registry.register(failover)
@@ -121,7 +115,6 @@ def get_engine_registry() -> EngineRegistry:
     # Config watcher engine
     config_watcher = ConfigWatcherEngine(
         check_interval=settings.config_reload_interval,
-        voter_keys_file=settings.voter_keys_file,
         servers_file=settings.servers_file if settings.servers_file.is_file() else None,
         token_file=settings.api_token_file,
         reg_tokens_file=reg_tokens_file,

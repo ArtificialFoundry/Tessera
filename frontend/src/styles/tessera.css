@@ -324,8 +324,5 @@ td.mono { font-family: var(--mono); font-size: 12px; }
 .dot.dormant { background: var(--text-dim); opacity: 0.4; }
 .dot.warn { background: #f97316; }
 
-/* Config-only badge */
-.badge-dim { font-size: 11px; color: var(--text-dim); background: rgba(255,255,255,0.06); padding: 2px 8px; border-radius: 4px; }
-
 /* Pending row highlight */
 .row-pending { background: rgba(234, 179, 8, 0.04); }

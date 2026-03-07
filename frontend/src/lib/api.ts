@@ -298,6 +298,7 @@ export const api = {
   revokeVoter: (name: string) => request<VoterRevokeResponse>(`/voters/${enc(name)}/revoke`, { method: "POST" }),
   deleteVoter: (name: string) => request<VoterRevokeResponse>(`/voters/${enc(name)}`, { method: "DELETE" }),
   rotateVoterKey: (name: string) => request<KeyRotateResponse>(`/voters/${enc(name)}/rotate-key`, { method: "POST" }),
+  deleteToken: (prefix: string) => request<{ message: string }>(`/voters/tokens/${enc(prefix)}`, { method: "DELETE" }),
 } as const;
 
 function enc(s: string): string {

@@ -47,7 +47,8 @@ class Settings(BaseSettings):
         servers: JSON list of DhcpServer configs (parsed from env).
         servers_file: Path to JSON file with server list.
         api_token_file: Path to file containing Technitium API token.
-        voter_keys_file: Path to JSON file mapping voter names to PSKs.
+        voter_keys_file: (DEPRECATED) Path to JSON file mapping voter names to PSKs.
+            The voter registry engine now manages this file directly.
         quorum: Minimum votes required for quorum.
         failover_rounds: Consecutive failed rounds before failover.
         failback_rounds: Consecutive healthy rounds before failback.

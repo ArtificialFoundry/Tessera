@@ -92,7 +92,7 @@ class VoterRecord:
         name: Voter identifier.
         registered_at: When the voter registered.
         approved_at: When the voter was approved (None if pending).
-        status: Current status (pending, active, revoked).
+        status: Current status (pending, approved, revoked).
         last_vote: Timestamp of last vote (0 if never voted).
         ip_address: IP address seen during registration.
         callback_url: Optional callback URL for readiness notification.
@@ -200,9 +200,33 @@ class VoterRegistryEngine(Engine):
         self._on_keys_changed = callback
 
     async def start(self) -> None:
-        """Load existing state from disk."""
+        """Load existing state from disk and sync keys to failover."""
         self._load_tokens()
         self._load_registry()
+
+        # Migration: seed registry from existing voter keys if registry is empty
+        if not self._voters:
+            keys = self._load_voter_keys()
+            if keys:
+                now = time.time()
+                for name in keys:
+                    self._voters[name] = VoterRecord(
+                        name=name,
+                        registered_at=now,
+                        approved_at=now,
+                        status="approved",
+                        ip_address="",
+                    )
+                self._save_registry()
+                logger.info(
+                    "Seeded voter registry from %d existing voter keys",
+                    len(keys),
+                )
+
+        # Push current voter keys to failover engine on startup
+        if self._on_keys_changed:
+            keys = self._load_voter_keys()
+            self._on_keys_changed(keys)
         logger.info(
             "VoterRegistryEngine started (%d tokens, %d voters)",
             len(self._tokens),
@@ -352,6 +376,29 @@ class VoterRegistryEngine(Engine):
             logger.info("Cleaned up %d expired registration tokens", len(expired))
         return len(expired)
 
+    def delete_token(self, token_prefix: str) -> None:
+        """Delete a registration token by hash prefix.
+
+        Args:
+            token_prefix: First 8+ characters of the stored hash.
+
+        Raises:
+            NotFoundError: If no token matches the prefix.
+        """
+        prefix = token_prefix.rstrip(".")
+        matches = [
+            k for k in self._tokens if k.startswith(prefix)
+        ]
+        if not matches:
+            raise NotFoundError("Token", token_prefix)
+        if len(matches) > 1:
+            raise RegistrationError(
+                f"Ambiguous prefix, matches {len(matches)} tokens"
+            )
+        del self._tokens[matches[0]]
+        self._save_tokens()
+        logger.info("Registration token deleted: %s...", prefix[:8])
+
     # ── Voter registration ───────────────────────────────────────────────
 
     def register_voter(
@@ -381,8 +428,8 @@ class VoterRegistryEngine(Engine):
         # Validate token
         self.validate_token(token_str, source_ip=source_ip)
 
-        if name in self._voters and self._voters[name].status == "active":
-            raise RegistrationError(f"Voter already registered and active: {name}")
+        if name in self._voters and self._voters[name].status == "approved":
+            raise RegistrationError(f"Voter already registered and approved: {name}")
 
         now = time.time()
         psk: str | None = None
@@ -393,7 +440,7 @@ class VoterRegistryEngine(Engine):
                 name=name,
                 registered_at=now,
                 approved_at=now,
-                status="active",
+                status="approved",
                 ip_address=source_ip,
                 callback_url=callback_url,
             )
@@ -436,7 +483,7 @@ class VoterRegistryEngine(Engine):
 
         psk = secrets.token_hex(32)
         record.approved_at = time.time()
-        record.status = "active"
+        record.status = "approved"
         self._add_voter_key(name, psk)
         self._save_registry()
 
@@ -465,6 +512,25 @@ class VoterRegistryEngine(Engine):
 
         logger.info("Voter revoked: %s", name)
         return record
+
+    def delete_voter(self, name: str) -> None:
+        """Permanently delete a voter record and its PSK.
+
+        Unlike revoke, this completely removes the voter from the registry.
+
+        Args:
+            name: Voter name.
+
+        Raises:
+            NotFoundError: If voter not found.
+        """
+        if name not in self._voters:
+            raise NotFoundError("Voter", name)
+        self._remove_voter_key(name)
+        self._grace_keys.pop(name, None)
+        del self._voters[name]
+        self._save_registry()
+        logger.info("Voter deleted: %s", name)
 
     def list_voters(self) -> list[VoterRecord]:
         """Return all voter records."""
@@ -502,8 +568,9 @@ class VoterRegistryEngine(Engine):
         """
         if name not in self._voters:
             raise NotFoundError("Voter", name)
-        if self._voters[name].status != "active":
-            raise RegistrationError(f"Voter is {self._voters[name].status}, not active")
+        if self._voters[name].status != "approved":
+            status = self._voters[name].status
+            raise RegistrationError(f"Voter is {status}, not approved")
 
         keys = self._load_voter_keys()
         old_psk = keys.get(name, "")
@@ -627,18 +694,18 @@ class VoterRegistryEngine(Engine):
 
     async def check_health(self) -> EngineHealth:
         """Return engine health."""
-        active = sum(1 for v in self._voters.values() if v.status == "active")
+        active = sum(1 for v in self._voters.values() if v.status == "approved")
         pending = sum(1 for v in self._voters.values() if v.status == "pending")
         self.health.status = EngineStatus.RUNNING
-        self.health.message = f"{active} active, {pending} pending voters"
+        self.health.message = f"{active} approved, {pending} pending voters"
         return self.health
 
     def get_metrics(self) -> dict[str, Any]:
         """Return engine metrics."""
         return {
             "total_voters": len(self._voters),
-            "active_voters": sum(
-                1 for v in self._voters.values() if v.status == "active"
+            "approved_voters": sum(
+                1 for v in self._voters.values() if v.status == "approved"
             ),
             "pending_voters": sum(
                 1 for v in self._voters.values() if v.status == "pending"
