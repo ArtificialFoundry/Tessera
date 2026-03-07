@@ -15,7 +15,6 @@ from tessera.api.schemas import (
     PaginationMeta,
 )
 from tessera.deps import get_technitium_client
-from tessera.exceptions import TechnitiumError
 
 if TYPE_CHECKING:
     from tessera.engines.technitium import TechnitiumClient
@@ -37,12 +36,7 @@ def _filter_leases_by_scope(
     leases: list[dict[str, Any]],
     scope: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """Filter leases to only those within a scope's address range.
-
-    Technitium's ``/api/dhcp/leases/list`` ignores the ``name`` parameter
-    and always returns *all* leases.  We filter client-side by checking
-    each lease address falls within the scope's start-end range.
-    """
+    """Filter leases to only those within a scope's address range."""
     try:
         start = ipaddress.IPv4Address(scope["startingAddress"])
         end = ipaddress.IPv4Address(scope["endingAddress"])
@@ -66,19 +60,18 @@ async def all_leases(
     client: TechnitiumClient = Depends(get_technitium_client),
 ) -> AllLeasesResponse:
     """Get active leases across all scopes, grouped by scope."""
-    try:
-        scopes = await client.list_scopes()
-        all_lease_list = await client.get_leases("")
-        result: dict[str, list[LeaseEntry]] = {}
-        for scope in scopes:
-            name: str = scope.get("name", "")
-            if name:
-                result[name] = [
-                    _lease_dict_to_entry(lease)
-                    for lease in _filter_leases_by_scope(all_lease_list, scope)
-                ]
-    except TechnitiumError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    scopes = await client.list_scopes()
+    all_lease_list = await client.get_leases("")
+    result: dict[str, list[LeaseEntry]] = {}
+    for scope in scopes:
+        name: str = scope.get("name", "")
+        if name:
+            result[name] = [
+                _lease_dict_to_entry(lease)
+                for lease in _filter_leases_by_scope(
+                    all_lease_list, scope
+                )
+            ]
 
     return AllLeasesResponse(scopes=result)
 
@@ -91,73 +84,73 @@ async def scope_leases(
     client: TechnitiumClient = Depends(get_technitium_client),
 ) -> LeasesResponse:
     """Get active leases for a specific scope (paginated)."""
-    try:
-        scope_detail = await client.get_scope(scope_name)
-        all_leases_list = await client.get_leases(scope_name)
-        leases = _filter_leases_by_scope(all_leases_list, scope_detail)
-    except TechnitiumError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    scope_detail = await client.get_scope(scope_name)
+    all_leases_list = await client.get_leases(scope_name)
+    leases = _filter_leases_by_scope(all_leases_list, scope_detail)
 
     total = len(leases)
     page = leases[offset : offset + limit]
     return LeasesResponse(
         scope=scope_name,
         leases=[_lease_dict_to_entry(lease) for lease in page],
-        pagination=PaginationMeta(total=total, offset=offset, limit=limit),
+        pagination=PaginationMeta(
+            total=total, offset=offset, limit=limit
+        ),
     )
 
 
-@router.delete("/{scope_name}/{address}", response_model=MessageResponse)
+@router.delete(
+    "/{scope_name}/{address}", response_model=MessageResponse
+)
 async def remove_lease(
     scope_name: str,
     address: str,
     client: TechnitiumClient = Depends(get_technitium_client),
 ) -> MessageResponse:
     """Remove a lease from a scope."""
-    try:
-        await client.remove_lease(scope_name, address=address)
-    except TechnitiumError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-
+    await client.remove_lease(scope_name, address=address)
     return MessageResponse(message=f"Lease removed: {address}")
 
 
-@router.post("/{scope_name}/{address}/convert", response_model=MessageResponse)
+@router.post(
+    "/{scope_name}/{address}/convert",
+    response_model=MessageResponse,
+)
 async def convert_lease(
     scope_name: str,
     address: str,
     client: TechnitiumClient = Depends(get_technitium_client),
 ) -> MessageResponse:
-    """Convert a dynamic lease to a reserved lease.
-
-    Composite operation: finds the lease's MAC/hostname from the lease list,
-    then adds it as a reservation on the scope.
-    """
-    try:
-        all_leases = await client.get_leases(scope_name)
-        lease = next(
-            (entry for entry in all_leases if entry.get("address") == address),
-            None,
+    """Convert a dynamic lease to a reserved lease."""
+    all_leases = await client.get_leases(scope_name)
+    lease = next(
+        (
+            entry
+            for entry in all_leases
+            if entry.get("address") == address
+        ),
+        None,
+    )
+    if not lease:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Lease {address} not found",
         )
-        if not lease:
-            raise HTTPException(status_code=404, detail=f"Lease {address} not found")
-        mac = lease.get("hardwareAddress", "")
-        if not mac:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Lease {address} has no MAC address",
-            )
-        host = lease.get("hostName", "")
-        await client.add_reservation(
-            scope_name,
-            hardware_address=mac,
-            address=address,
-            host_name=host,
-            comments="Converted from dynamic lease",
+    mac = lease.get("hardwareAddress", "")
+    if not mac:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Lease {address} has no MAC address",
         )
-    except HTTPException:
-        raise
-    except TechnitiumError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    host = lease.get("hostName", "")
+    await client.add_reservation(
+        scope_name,
+        hardware_address=mac,
+        address=address,
+        host_name=host,
+        comments="Converted from dynamic lease",
+    )
 
-    return MessageResponse(message=f"Lease converted to reservation: {address}")
+    return MessageResponse(
+        message=f"Lease converted to reservation: {address}"
+    )

@@ -31,7 +31,8 @@ class EnforcementError(AppError):
     """An enforcement operation failed."""
 
     def __init__(self, message: str) -> None:
-        super().__init__(message)
+        from tessera.exceptions import ErrorCode
+        super().__init__(message, code=ErrorCode.ENFORCEMENT_ERROR)
 
 
 class EnforcementMode(StrEnum):

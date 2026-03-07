@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
 from tessera.api.schemas import (
     FailoverStatusResponse,
@@ -15,7 +15,6 @@ from tessera.api.schemas import (
     VoterInfo,
 )
 from tessera.deps import get_failover_engine
-from tessera.exceptions import AuthenticationError, RateLimitError
 
 if TYPE_CHECKING:
     from tessera.engines.failover import FailoverEngine
@@ -29,21 +28,12 @@ async def submit_vote(
     failover: FailoverEngine = Depends(get_failover_engine),
 ) -> VoteResponse:
     """Submit a voter health check."""
-    try:
-        vote = failover.submit_vote(
-            voter=payload.voter,
-            status=payload.status,
-            timestamp_val=payload.timestamp,
-            signature=payload.signature,
-        )
-    except AuthenticationError as exc:
-        raise HTTPException(status_code=401, detail=str(exc)) from exc
-    except RateLimitError as exc:
-        raise HTTPException(
-            status_code=429,
-            detail=str(exc),
-            headers={"Retry-After": str(int(exc.retry_after) + 1)},
-        ) from exc
+    vote = failover.submit_vote(
+        voter=payload.voter,
+        status=payload.status,
+        timestamp_val=payload.timestamp,
+        signature=payload.signature,
+    )
 
     await failover.evaluate_quorum()
 
@@ -60,12 +50,15 @@ async def failover_status(
     transitions_limit: int = 20,
     failover: FailoverEngine = Depends(get_failover_engine),
 ) -> FailoverStatusResponse:
-    """Get current failover status, votes, and transition history."""
+    """Get current failover status, votes, and transitions."""
     evaluation = await failover.evaluate_quorum()
     votes = failover.votes
     all_transitions = failover.transitions
     total = len(all_transitions)
-    page = all_transitions[transitions_offset : transitions_offset + transitions_limit]
+    page = all_transitions[
+        transitions_offset : transitions_offset
+        + transitions_limit
+    ]
 
     return FailoverStatusResponse(
         state=evaluation["state"],

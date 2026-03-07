@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import threading
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock
@@ -295,3 +297,76 @@ class TestAutoBackupBackoff:
         engine._consecutive_failures = 5
         engine.health.status = EngineStatus.DEGRADED
         assert engine.health.status == EngineStatus.DEGRADED
+
+
+class TestBackupFilesystemLock:
+    """Filesystem lock protects concurrent backup operations."""
+
+    @pytest.mark.asyncio
+    async def test_engine_has_filesystem_lock(
+        self, engine: BackupEngine,
+    ) -> None:
+        assert isinstance(engine._fs_lock, type(threading.Lock()))
+
+    @pytest.mark.asyncio
+    async def test_list_tolerates_file_deleted_between_glob_and_read(
+        self, engine: BackupEngine,
+    ) -> None:
+        await engine.start()
+        await engine.create_backup("test")
+        assert len(engine._list_backups_sync()) == 1
+        for f in engine.backup_dir.glob("*.json"):
+            f.unlink()
+        assert len(engine._list_backups_sync()) == 0
+
+
+class TestBackupChecksumIntegrity:
+    """SHA-256 checksum written on create and verified on load."""
+
+    @pytest.mark.asyncio
+    async def test_created_backup_contains_valid_checksum(
+        self, engine: BackupEngine,
+    ) -> None:
+        await engine.start()
+        m = await engine.create_backup("cksum test")
+        fp = engine.backup_dir / f"{m.backup_id}.json"
+        data = json.loads(fp.read_text())
+        assert "checksum" in data
+        backup = await engine.get_backup(m.backup_id)
+        assert backup.manifest.backup_id == m.backup_id
+
+    @pytest.mark.asyncio
+    async def test_tampered_checksum_raises_on_load(
+        self, engine: BackupEngine,
+    ) -> None:
+        await engine.start()
+        m = await engine.create_backup("corrupt test")
+        fp = engine.backup_dir / f"{m.backup_id}.json"
+        data = json.loads(fp.read_text())
+        data["checksum"] = "deadbeef"
+        fp.write_text(json.dumps(data))
+
+        with pytest.raises(BackupError, match="integrity"):
+            await engine.get_backup(m.backup_id)
+
+    @pytest.mark.asyncio
+    @pytest.mark.slow
+    async def test_verify_integrity_reports_corrupt_and_valid(
+        self, engine: BackupEngine,
+    ) -> None:
+        import time
+
+        await engine.start()
+        await engine.create_backup("ok")
+        time.sleep(1.1)
+        m2 = await engine.create_backup("corrupt")
+        fp = engine.backup_dir / f"{m2.backup_id}.json"
+        data = json.loads(fp.read_text())
+        data["checksum"] = "bad"
+        fp.write_text(json.dumps(data))
+
+        report = await engine.verify_integrity()
+        assert report["total"] == 2
+        assert report["valid"] == 1
+        assert report["corrupt"] == 1
+        assert f"{m2.backup_id}.json" in report["failures"]

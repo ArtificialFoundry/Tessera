@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
 from tessera.api.schemas import (
     PromoteDemoteResponse,
@@ -12,7 +12,6 @@ from tessera.api.schemas import (
     ServersResponse,
 )
 from tessera.deps import get_technitium_pool
-from tessera.exceptions import TechnitiumError
 
 if TYPE_CHECKING:
     from tessera.engines.technitium import TechnitiumPool
@@ -40,10 +39,7 @@ async def promote_server(
     pool: TechnitiumPool = Depends(get_technitium_pool),
 ) -> PromoteDemoteResponse:
     """Promote a server to primary."""
-    try:
-        pool.promote(name)
-    except TechnitiumError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    pool.promote(name)
     return PromoteDemoteResponse(
         name=name,
         new_role="active",
@@ -60,10 +56,7 @@ async def demote_server(
     pool: TechnitiumPool = Depends(get_technitium_pool),
 ) -> PromoteDemoteResponse:
     """Demote a server to standby."""
-    try:
-        pool.demote(name)
-    except TechnitiumError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    pool.demote(name)
     return PromoteDemoteResponse(
         name=name,
         new_role="candidate",

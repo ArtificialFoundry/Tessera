@@ -189,9 +189,11 @@ class TechnitiumClient(Engine):
                     last_exc = exc
                     if attempt < _max_attempts - 1:
                         logger.warning(
-                            "Technitium request %s %s returned %d (attempt %d/%d) — retrying in %.1fs",
-                            method, path, exc.response.status_code,
-                            attempt + 1, _max_attempts, _backoff[attempt],
+                            "Technitium %s %s returned %d "
+                            "(attempt %d/%d) — retrying",
+                            method, path,
+                            exc.response.status_code,
+                            attempt + 1, _max_attempts,
                         )
                         await asyncio.sleep(_backoff[attempt])
                         continue

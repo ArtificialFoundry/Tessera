@@ -219,11 +219,11 @@ class TestServersAPI:
         assert resp.json()["new_role"] == "active"
 
     @pytest.mark.asyncio
-    async def test_promote_unknown_server_returns_400(
+    async def test_promote_unknown_server_returns_502(
         self, client: AsyncClient
     ) -> None:
         resp = await client.post("/api/v1/servers/nonexistent/promote")
-        assert resp.status_code == 400
+        assert resp.status_code == 502
 
 
 class TestConfigBackwardCompat:

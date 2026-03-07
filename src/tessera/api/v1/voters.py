@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 
 from tessera.api.schemas import (
     KeyRotateResponse,
@@ -20,11 +20,6 @@ from tessera.api.schemas import (
     VoterRevokeResponse,
 )
 from tessera.deps import get_voter_registry
-from tessera.exceptions import (
-    AuthenticationError,
-    NotFoundError,
-    RegistrationError,
-)
 
 if TYPE_CHECKING:
     from tessera.engines.voter_registry import VoterRegistryEngine
@@ -91,21 +86,12 @@ async def register_voter(
     if request.client:
         source_ip = request.client.host
 
-    try:
-        record, psk = registry.register_voter(
-            name=body.name,
-            token_str=body.token,
-            source_ip=source_ip,
-            callback_url=body.callback_url,
-        )
-    except AuthenticationError as exc:
-        raise HTTPException(
-            status_code=401, detail=str(exc)
-        ) from exc
-    except RegistrationError as exc:
-        raise HTTPException(
-            status_code=409, detail=str(exc)
-        ) from exc
+    record, psk = registry.register_voter(
+        name=body.name,
+        token_str=body.token,
+        source_ip=source_ip,
+        callback_url=body.callback_url,
+    )
 
     return VoterRegisterResponse(
         voter_name=record.name,
@@ -168,16 +154,7 @@ async def approve_voter(
     registry: VoterRegistryEngine = Depends(get_voter_registry),
 ) -> VoterApproveResponse:
     """Approve a pending voter registration."""
-    try:
-        record, psk = registry.approve_voter(name)
-    except NotFoundError as exc:
-        raise HTTPException(
-            status_code=404, detail=str(exc)
-        ) from exc
-    except RegistrationError as exc:
-        raise HTTPException(
-            status_code=400, detail=str(exc)
-        ) from exc
+    record, psk = registry.approve_voter(name)
 
     return VoterApproveResponse(
         voter_name=record.name,
@@ -195,12 +172,7 @@ async def revoke_voter(
     registry: VoterRegistryEngine = Depends(get_voter_registry),
 ) -> VoterRevokeResponse:
     """Revoke a voter."""
-    try:
-        record = registry.revoke_voter(name)
-    except NotFoundError as exc:
-        raise HTTPException(
-            status_code=404, detail=str(exc)
-        ) from exc
+    record = registry.revoke_voter(name)
 
     return VoterRevokeResponse(
         voter_name=record.name,
@@ -229,16 +201,7 @@ async def rotate_key(
     registry: VoterRegistryEngine = Depends(get_voter_registry),
 ) -> KeyRotateResponse:
     """Rotate a voter's PSK with a grace period."""
-    try:
-        new_psk = registry.rotate_key(name)
-    except NotFoundError as exc:
-        raise HTTPException(
-            status_code=404, detail=str(exc)
-        ) from exc
-    except RegistrationError as exc:
-        raise HTTPException(
-            status_code=400, detail=str(exc)
-        ) from exc
+    new_psk = registry.rotate_key(name)
 
     grace = registry._psk_grace_period
     return KeyRotateResponse(

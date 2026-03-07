@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import TYPE_CHECKING, Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from tessera.engines.technitium import (
@@ -152,3 +154,119 @@ class TestPoolRolePersistence:
         pool.demote("s1")
         data = json.loads(sf.read_text())
         assert data[0]["role"] == "candidate"
+
+
+class TestTlsVerificationWarning:
+    """TLS disabled warning logged once per URL."""
+
+    @pytest.mark.asyncio
+    async def test_warns_when_tls_verification_disabled(
+        self, caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        TechnitiumClient._tls_warned_urls.clear()
+        c = TechnitiumClient("https://tls-test:53443", "tok")
+        with caplog.at_level(logging.WARNING):
+            await c.start()
+        assert any(
+            "TLS verification disabled" in r.message
+            for r in caplog.records
+        )
+        await c.stop()
+
+    @pytest.mark.asyncio
+    async def test_duplicate_url_does_not_warn_twice(
+        self, caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        TechnitiumClient._tls_warned_urls.clear()
+        url = "https://tls-dedup:53443"
+        c1 = TechnitiumClient(url, "tok")
+        c2 = TechnitiumClient(url, "tok")
+        with caplog.at_level(logging.WARNING):
+            await c1.start()
+            await c2.start()
+        tls = [
+            r for r in caplog.records
+            if "TLS verification disabled" in r.message
+        ]
+        assert len(tls) == 1
+        await c1.stop()
+        await c2.stop()
+
+
+class TestHttpxRetryLogic:
+    """Retry transient errors with exponential backoff."""
+
+    @pytest.mark.asyncio
+    async def test_retries_on_connect_error_then_succeeds(self) -> None:
+        TechnitiumClient._tls_warned_urls.clear()
+        c = TechnitiumClient("https://retry-1:53443", "tok")
+        await c.start()
+
+        call_count = 0
+
+        async def _mock_get(*_a: object, **_kw: object) -> MagicMock:
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                raise httpx.ConnectError("refused")
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.json.return_value = {"status": "ok"}
+            resp.raise_for_status = MagicMock()
+            return resp
+
+        with patch.object(c.client, "get", side_effect=_mock_get):
+            result = await c._request("GET", "/api/test")
+        assert call_count == 3
+        assert result["status"] == "ok"
+        await c.stop()
+
+    @pytest.mark.asyncio
+    async def test_raises_after_max_retries_exhausted(self) -> None:
+        TechnitiumClient._tls_warned_urls.clear()
+        c = TechnitiumClient("https://retry-2:53443", "tok")
+        await c.start()
+
+        with (
+            patch.object(
+                c.client, "get",
+                side_effect=httpx.ConnectError("refused"),
+            ),
+            pytest.raises(TechnitiumError),
+        ):
+            await c._request("GET", "/api/test")
+        await c.stop()
+
+    @pytest.mark.asyncio
+    async def test_retries_on_502_then_succeeds(self) -> None:
+        TechnitiumClient._tls_warned_urls.clear()
+        c = TechnitiumClient("https://retry-3:53443", "tok")
+        await c.start()
+
+        call_count = 0
+
+        async def _mock_get(*_a: object, **_kw: object) -> MagicMock:
+            nonlocal call_count
+            call_count += 1
+            resp = MagicMock()
+            if call_count < 3:
+                resp.status_code = 502
+                resp.text = "Bad Gateway"
+                resp.request = MagicMock()
+                resp.raise_for_status = MagicMock(
+                    side_effect=httpx.HTTPStatusError(
+                        "502",
+                        request=resp.request,
+                        response=resp,
+                    )
+                )
+            else:
+                resp.status_code = 200
+                resp.json.return_value = {"status": "ok"}
+                resp.raise_for_status = MagicMock()
+            return resp
+
+        with patch.object(c.client, "get", side_effect=_mock_get):
+            await c._request("GET", "/api/test")
+        assert call_count == 3
+        await c.stop()

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
 from tessera.api.schemas import (
     BackupCreateRequest,
@@ -20,8 +20,6 @@ from tessera.api.schemas import (
     ScopeSnapshotResponse,
 )
 from tessera.deps import get_backup_engine
-from tessera.engines.backup import BackupError
-from tessera.exceptions import NotFoundError
 
 if TYPE_CHECKING:
     from tessera.engines.backup import BackupEngine
@@ -50,14 +48,11 @@ async def update_backup_settings(
     engine: BackupEngine = Depends(get_backup_engine),
 ) -> BackupSettingsResponse:
     """Update backup engine settings at runtime."""
-    try:
-        engine.update_settings(
-            auto_enabled=body.auto_enabled,
-            cron_schedule=body.cron_schedule,
-            max_backups=body.max_backups,
-        )
-    except BackupError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    engine.update_settings(
+        auto_enabled=body.auto_enabled,
+        cron_schedule=body.cron_schedule,
+        max_backups=body.max_backups,
+    )
 
     return BackupSettingsResponse(
         auto_enabled=engine.auto_enabled,
@@ -101,10 +96,7 @@ async def create_backup(
     engine: BackupEngine = Depends(get_backup_engine),
 ) -> BackupManifestResponse:
     """Create a new DHCP state backup."""
-    try:
-        manifest = await engine.create_backup(description=body.description)
-    except BackupError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    manifest = await engine.create_backup(description=body.description)
 
     return BackupManifestResponse(
         backup_id=manifest.backup_id,
@@ -122,10 +114,7 @@ async def get_backup(
     engine: BackupEngine = Depends(get_backup_engine),
 ) -> BackupDetailResponse:
     """Get a specific backup with full scope data."""
-    try:
-        backup = await engine.get_backup(backup_id)
-    except NotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    backup = await engine.get_backup(backup_id)
 
     from dataclasses import asdict
 
@@ -143,11 +132,7 @@ async def delete_backup(
     engine: BackupEngine = Depends(get_backup_engine),
 ) -> MessageResponse:
     """Delete a stored backup."""
-    try:
-        engine.delete_backup(backup_id)
-    except NotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
+    engine.delete_backup(backup_id)
     return MessageResponse(message=f"Backup '{backup_id}' deleted")
 
 
@@ -161,12 +146,7 @@ async def restore_backup(
 
     Default is dry_run=True (preview changes without applying).
     """
-    try:
-        result = await engine.restore_backup(backup_id, dry_run=body.dry_run)
-    except NotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except BackupError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    result = await engine.restore_backup(backup_id, dry_run=body.dry_run)
 
     return RestoreResponse(
         backup_id=result["backup_id"],

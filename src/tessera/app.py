@@ -273,11 +273,13 @@ def create_app() -> FastAPI:
             status = 502
         elif exc.code in (
             ErrorCode.BACKUP_ERROR,
-            ErrorCode.ENFORCEMENT_ERROR,
             ErrorCode.SCOPE_SYNC_ERROR,
         ):
             status = 500
-        elif exc.code == ErrorCode.REGISTRATION_ERROR:
+        elif exc.code in (
+            ErrorCode.ENFORCEMENT_ERROR,
+            ErrorCode.REGISTRATION_ERROR,
+        ):
             status = 400
         elif exc.code == ErrorCode.PAYLOAD_TOO_LARGE:
             status = 413

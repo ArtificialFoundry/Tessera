@@ -17,8 +17,7 @@ from tessera.api.schemas import (
     PinBackupRequest,
 )
 from tessera.deps import get_enforcement_engine
-from tessera.engines.enforcement import EnforcementError, EnforcementMode
-from tessera.exceptions import NotFoundError
+from tessera.engines.enforcement import EnforcementMode
 
 if TYPE_CHECKING:
     from tessera.engines.enforcement import EnforcementEngine
@@ -38,7 +37,9 @@ async def get_enforcement_status(
 
     all_history = state.history
     total = len(all_history)
-    page = all_history[history_offset : history_offset + history_limit]
+    page = all_history[
+        history_offset : history_offset + history_limit
+    ]
 
     return EnforcementStatusResponse(
         mode=state.mode.value,
@@ -53,7 +54,9 @@ async def get_enforcement_status(
         max_history=state.max_history,
         history=[asdict(e) for e in page],
         history_pagination=PaginationMeta(
-            total=total, offset=history_offset, limit=history_limit
+            total=total,
+            offset=history_offset,
+            limit=history_limit,
         ),
     )
 
@@ -69,15 +72,16 @@ async def set_enforcement_mode(
     except ValueError as exc:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid mode: {body.mode}. Must be: off, monitor, enforce",
+            detail=(
+                f"Invalid mode: {body.mode}. "
+                "Must be: off, monitor, enforce"
+            ),
         ) from exc
 
-    try:
-        engine.set_mode(mode)
-    except EnforcementError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    return MessageResponse(message=f"Enforcement mode set to {mode.value}")
+    engine.set_mode(mode)
+    return MessageResponse(
+        message=f"Enforcement mode set to {mode.value}"
+    )
 
 
 @router.post("/pin", response_model=MessageResponse)
@@ -86,14 +90,10 @@ async def pin_backup(
     engine: EnforcementEngine = Depends(get_enforcement_engine),
 ) -> MessageResponse:
     """Pin a backup as the desired DHCP state."""
-    try:
-        await engine.pin_backup(body.backup_id)
-    except NotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except EnforcementError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-    return MessageResponse(message=f"Pinned backup '{body.backup_id}' as desired state")
+    await engine.pin_backup(body.backup_id)
+    return MessageResponse(
+        message=f"Pinned backup '{body.backup_id}' as desired state"
+    )
 
 
 @router.post("/unpin", response_model=MessageResponse)
@@ -102,7 +102,9 @@ async def unpin_backup(
 ) -> MessageResponse:
     """Unpin the current backup and disable enforcement."""
     engine.unpin()
-    return MessageResponse(message="Unpinned backup, enforcement disabled")
+    return MessageResponse(
+        message="Unpinned backup, enforcement disabled"
+    )
 
 
 @router.post("/check", response_model=DriftCheckResponse)
@@ -110,10 +112,7 @@ async def check_drift(
     engine: EnforcementEngine = Depends(get_enforcement_engine),
 ) -> DriftCheckResponse:
     """Manually trigger a drift check."""
-    try:
-        result = await engine.check_drift()
-    except EnforcementError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    result = await engine.check_drift()
 
     return DriftCheckResponse(
         drift_detected=result["drift_detected"],
@@ -130,16 +129,12 @@ async def update_enforcement_settings(
     engine: EnforcementEngine = Depends(get_enforcement_engine),
 ) -> MessageResponse:
     """Update enforcement engine settings at runtime."""
-    try:
-        engine.update_settings(
-            check_interval=body.check_interval,
-            backup_on_pin=body.backup_on_pin,
-            auto_restore_cooldown=body.auto_restore_cooldown,
-            max_history=body.max_history,
-        )
-    except EnforcementError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
+    engine.update_settings(
+        check_interval=body.check_interval,
+        backup_on_pin=body.backup_on_pin,
+        auto_restore_cooldown=body.auto_restore_cooldown,
+        max_history=body.max_history,
+    )
     return MessageResponse(message="Enforcement settings updated")
 
 
@@ -147,11 +142,8 @@ async def update_enforcement_settings(
 async def accept_drift(
     engine: EnforcementEngine = Depends(get_enforcement_engine),
 ) -> AcceptDriftResponse:
-    """Accept current drift by snapshotting live state and pinning it."""
-    try:
-        new_id = await engine.accept_drift()
-    except EnforcementError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    """Accept current drift by snapshotting live state."""
+    new_id = await engine.accept_drift()
 
     return AcceptDriftResponse(
         new_backup_id=new_id,
