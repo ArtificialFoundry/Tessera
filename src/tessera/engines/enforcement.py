@@ -21,6 +21,7 @@ from tessera.registry import Engine, EngineHealth, EngineStatus
 
 if TYPE_CHECKING:
     from tessera.engines.backup import BackupEngine
+    from tessera.settings_store import SettingsStore
 
 logger = logging.getLogger(__name__)
 
@@ -119,8 +120,10 @@ class EnforcementEngine(Engine):
         backup_on_pin: bool = True,
         auto_restore_cooldown: int = 60,
         max_history: int = 50,
+        settings_store: SettingsStore | None = None,
     ) -> None:
         super().__init__()
+        self._store = settings_store
         self._state = EnforcementState(
             check_interval=check_interval,
             backup_on_pin=backup_on_pin,
@@ -130,6 +133,48 @@ class EnforcementEngine(Engine):
         self._backup_engine: BackupEngine | None = None
         self._task: asyncio.Task[None] | None = None
         self._last_error: str = ""
+
+        # Restore persisted settings
+        self._restore_settings()
+
+    def _restore_settings(self) -> None:
+        """Load persisted settings from store."""
+        if not self._store:
+            return
+        saved = self._store.get("enforcement")
+        if not saved:
+            return
+        if "check_interval" in saved:
+            self._state.check_interval = int(saved["check_interval"])
+        if "backup_on_pin" in saved:
+            self._state.backup_on_pin = bool(saved["backup_on_pin"])
+        if "auto_restore_cooldown" in saved:
+            self._state.auto_restore_cooldown = int(saved["auto_restore_cooldown"])
+        if "max_history" in saved:
+            self._state.max_history = int(saved["max_history"])
+        if "mode" in saved:
+            self._state.mode = EnforcementMode(saved["mode"])
+        if saved.get("pinned_backup_id"):
+            self._state.pinned_backup_id = saved["pinned_backup_id"]
+        logger.info(
+            "Enforcement settings restored: mode=%s, interval=%ds, pinned=%s",
+            self._state.mode,
+            self._state.check_interval,
+            self._state.pinned_backup_id or "none",
+        )
+
+    def _persist_settings(self) -> None:
+        """Save current settings to the store."""
+        if not self._store:
+            return
+        self._store.put("enforcement", {
+            "mode": str(self._state.mode),
+            "check_interval": self._state.check_interval,
+            "backup_on_pin": self._state.backup_on_pin,
+            "auto_restore_cooldown": self._state.auto_restore_cooldown,
+            "max_history": self._state.max_history,
+            "pinned_backup_id": self._state.pinned_backup_id,
+        })
 
     def set_backup_engine(self, engine: BackupEngine) -> None:
         """Set the backup engine for snapshot access.
@@ -198,6 +243,7 @@ class EnforcementEngine(Engine):
             self._state.auto_restore_cooldown,
             self._state.max_history,
         )
+        self._persist_settings()
 
     async def accept_drift(self) -> str:
         """Accept current drift by snapshotting live state and pinning it.
@@ -217,6 +263,7 @@ class EnforcementEngine(Engine):
         old_pin = self._state.pinned_backup_id
         self._state.pinned_backup_id = manifest.backup_id
         logger.info("Drift accepted: new pin %s (was %s)", manifest.backup_id, old_pin)
+        self._persist_settings()
         return manifest.backup_id
 
     async def pin_backup(self, backup_id: str) -> None:
@@ -238,12 +285,14 @@ class EnforcementEngine(Engine):
         await self._backup_engine.get_backup(backup_id)
         self._state.pinned_backup_id = backup_id
         logger.info("Pinned backup: %s", backup_id)
+        self._persist_settings()
 
     def unpin(self) -> None:
         """Remove the pinned backup and switch to OFF mode."""
         self._state.pinned_backup_id = ""
         self.set_mode(EnforcementMode.OFF)
         logger.info("Unpinned backup, enforcement OFF")
+        self._persist_settings()
 
     def set_mode(self, mode: EnforcementMode) -> None:
         """Change the enforcement mode.
@@ -262,6 +311,7 @@ class EnforcementEngine(Engine):
         old = self._state.mode
         self._state.mode = mode
         logger.info("Enforcement mode: %s → %s", old.value, mode.value)
+        self._persist_settings()
         self._manage_task()
 
     def _manage_task(self) -> None:

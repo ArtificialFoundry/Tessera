@@ -25,6 +25,8 @@ from tessera.registry import Engine, EngineHealth, EngineStatus
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from tessera.settings_store import SettingsStore
+
 logger = logging.getLogger(__name__)
 
 
@@ -121,6 +123,7 @@ class BackupEngine(Engine):
         max_backups: int = 50,
         auto_interval: int = 0,
         cron_schedule: str = "",
+        settings_store: SettingsStore | None = None,
     ) -> None:
         super().__init__()
         self._backup_dir = backup_dir
@@ -134,10 +137,47 @@ class BackupEngine(Engine):
         self._backup_count: int = 0
         self._last_error: str = ""
         self._next_run: float = 0.0
+        self._store = settings_store
+
+        # Restore persisted settings (override defaults)
+        self._restore_settings()
 
         # Validate cron if provided
-        if cron_schedule and not croniter.is_valid(cron_schedule):
-            raise BackupError(f"Invalid cron expression: {cron_schedule}")
+        if self._cron_schedule and not croniter.is_valid(self._cron_schedule):
+            raise BackupError(f"Invalid cron expression: {self._cron_schedule}")
+
+    def _restore_settings(self) -> None:
+        """Load persisted settings from store, overriding defaults."""
+        if not self._store:
+            return
+        saved = self._store.get("backup")
+        if not saved:
+            return
+        if "auto_enabled" in saved:
+            self._auto_enabled = bool(saved["auto_enabled"])
+        if "cron_schedule" in saved:
+            self._cron_schedule = str(saved["cron_schedule"])
+        if "max_backups" in saved:
+            self._max_backups = int(saved["max_backups"])
+        if "auto_interval" in saved:
+            self._auto_interval = int(saved["auto_interval"])
+        logger.info(
+            "Backup settings restored from store: auto=%s, cron='%s', max=%d",
+            self._auto_enabled,
+            self._cron_schedule,
+            self._max_backups,
+        )
+
+    def _persist_settings(self) -> None:
+        """Save current settings to the store."""
+        if not self._store:
+            return
+        self._store.put("backup", {
+            "auto_enabled": self._auto_enabled,
+            "cron_schedule": self._cron_schedule,
+            "max_backups": self._max_backups,
+            "auto_interval": self._auto_interval,
+        })
 
     def set_active_client(self, client: Any) -> None:
         """Set the active Technitium client for snapshotting."""
@@ -216,6 +256,7 @@ class BackupEngine(Engine):
             self._auto_enabled = auto_enabled
 
         self._manage_auto_task()
+        self._persist_settings()
         logger.info(
             "Backup settings updated: auto=%s, cron='%s', max=%d",
             self._auto_enabled,

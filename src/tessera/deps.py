@@ -21,6 +21,7 @@ from tessera.engines.technitium import TechnitiumClient, TechnitiumPool
 from tessera.engines.voter_registry import VoterRegistryEngine
 from tessera.exceptions import AppError
 from tessera.registry import EngineRegistry, ModuleRegistry
+from tessera.settings_store import SettingsStore
 
 logger = logging.getLogger(__name__)
 
@@ -77,12 +78,16 @@ def get_engine_registry() -> EngineRegistry:
     scope_sync.set_pool(pool)
     registry.register(scope_sync)
 
+    # Persistent settings store (survives rebuilds)
+    settings_store = SettingsStore(settings.backup_dir / "engine-settings.json")
+
     # Backup engine
     backup = BackupEngine(
         backup_dir=settings.backup_dir,
         max_backups=settings.max_backups,
         auto_interval=settings.auto_backup_interval,
         cron_schedule=settings.backup_cron_schedule,
+        settings_store=settings_store,
     )
     backup.set_active_client(active_client)
     registry.register(backup)
@@ -90,6 +95,7 @@ def get_engine_registry() -> EngineRegistry:
     # Enforcement engine
     enforcement = EnforcementEngine(
         check_interval=settings.enforcement_interval,
+        settings_store=settings_store,
     )
     enforcement.set_backup_engine(backup)
     registry.register(enforcement)
