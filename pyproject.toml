@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "DHCP management and failover platform for Technitium DNS Server."
 license = "GPL-3.0-only"
 authors = [
-    {name = "Naimul Hasan", email = "23284131+agent47nh@users.noreply.github.com"},
+    {name = "Naimul Hasan", email = "TODO@example.com"},
 ]
 keywords = ["dhcp", "failover", "technitium", "dns", "network"]
 classifiers = [

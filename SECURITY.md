@@ -6,7 +6,7 @@
 
 If you discover a security issue in Tessera, please report it responsibly:
 
-1. Email: **23284131+agent47nh@users.noreply.github.com**
+1. Email: **TODO@example.com**
 2. Include a description of the vulnerability, steps to reproduce, and potential impact
 3. We will acknowledge receipt within 48 hours
 4. We will provide a timeline for a fix within 5 business days
