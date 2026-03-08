@@ -114,6 +114,14 @@ function EnforcementControls() {
     } catch (e) { if (!isAuthCancelled(e)) toast((e as Error).message, "error"); }
   }
 
+  async function pinLive() {
+    try {
+      const d = await api.pinLive();
+      toast(d.message, "success");
+      await loadEnforcement(); await loadBackups();
+    } catch (e) { if (!isAuthCancelled(e)) toast((e as Error).message, "error"); }
+  }
+
   return (
     <>
       <div class="section-title fade-up fade-up-2">🛡️ State Enforcement</div>
@@ -128,6 +136,7 @@ function EnforcementControls() {
             <button class={`btn btn-sm${enf.mode === "monitor" ? " btn-warning" : ""}`} onClick={() => setMode("monitor")} disabled={!enf.pinned_backup_id}>Monitor</button>
             <button class={`btn btn-sm${enf.mode === "enforce" ? " btn-success" : ""}`} onClick={() => setMode("enforce")} disabled={!enf.pinned_backup_id}>Enforce</button>
             <button class="btn btn-sm" onClick={check} disabled={!enf.pinned_backup_id || driftChecking}>{driftChecking ? "Checking…" : "🔍 Check Now"}</button>
+            <button class="btn btn-sm btn-success" onClick={pinLive} title="Snapshot live state and pin it">📌 Pin Current</button>
             <button class="btn btn-sm btn-ghost" onClick={unpin} disabled={!enf.pinned_backup_id} title="Unpin">⊘ Unpin</button>
           </div>
         </div>

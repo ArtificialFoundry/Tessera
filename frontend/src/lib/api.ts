@@ -383,6 +383,7 @@ export const api = {
   updateEnforcementSettings: (body: Record<string, unknown>) =>
     adminRequest<{ message: string }>("/enforcement/settings", { method: "PUT", body: JSON.stringify(body) }),
   acceptDrift: () => adminRequest<{ new_backup_id: string; message: string }>("/enforcement/accept", { method: "POST" }),
+  pinLive: () => adminRequest<{ new_backup_id: string; message: string }>("/enforcement/pin-live", { method: "POST" }),
 
   // Servers
   listServers: () => request<ServersResponse>("/servers"),

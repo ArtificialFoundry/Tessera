@@ -162,3 +162,19 @@ async def accept_drift(
         new_backup_id=new_id,
         message=f"Drift accepted — new pin: {new_id}",
     )
+
+
+@router.post(
+    "/pin-live",
+    response_model=AcceptDriftResponse,
+    dependencies=[Depends(require_admin)],
+)
+async def pin_live(
+    engine: EnforcementEngine = Depends(get_enforcement_engine),
+) -> AcceptDriftResponse:
+    """Snapshot current live DHCP state and pin it directly."""
+    new_id = await engine.pin_live()
+    return AcceptDriftResponse(
+        new_backup_id=new_id,
+        message=f"Pinned live state as {new_id}",
+    )

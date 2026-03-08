@@ -272,6 +272,29 @@ class EnforcementEngine(Engine):
         self._persist_settings()
         return manifest.backup_id
 
+    async def pin_live(self) -> str:
+        """Snapshot current live DHCP state and pin it directly.
+
+        Convenience method that creates a backup from the current live
+        state and immediately pins it — no pre-existing backup needed.
+
+        Returns:
+            The new backup ID that was created and pinned.
+
+        Raises:
+            EnforcementError: If backup engine is not configured.
+        """
+        if not self._backup_engine:
+            raise EnforcementError("Backup engine not configured")
+
+        manifest = await self._backup_engine.create_backup(
+            description="Pinned from live state"
+        )
+        self._state.pinned_backup_id = manifest.backup_id
+        logger.info("Pinned live state as %s", manifest.backup_id)
+        self._persist_settings()
+        return manifest.backup_id
+
     async def pin_backup(self, backup_id: str) -> None:
         """Pin a backup as the desired state.
 

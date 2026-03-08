@@ -187,6 +187,9 @@ class FailoverEngine(Engine):
         self._voter_registry: VoterRegistryEngine | None = None
         # Replay protection: track last-seen nonce per voter
         self._voter_nonces: dict[str, str] = {}
+        # Quorum tracking for alerting
+        self._last_quorum_reached: float = 0.0
+        self._quorum_warned: bool = False
 
     def set_pool(self, pool: TechnitiumPool) -> None:
         """Set the TechnitiumPool for multi-server failover.
@@ -585,6 +588,28 @@ class FailoverEngine(Engine):
             self._consecutive_down = 0
         # No quorum — don't change counters
 
+        # Track quorum reachability for alerting
+        if has_quorum:
+            self._last_quorum_reached = time.time()
+            if self._quorum_warned:
+                logger.info("Quorum restored (%d voters)", len(counted))
+                self._quorum_warned = False
+        else:
+            quorum_gap = self._vote_ttl * 2
+            if (
+                self._last_quorum_reached > 0
+                and time.time() - self._last_quorum_reached > quorum_gap
+                and not self._quorum_warned
+            ):
+                logger.warning(
+                    "Quorum unreachable for >%ds — failover disabled "
+                    "(%d/%d voters active)",
+                    quorum_gap,
+                    len(counted),
+                    self._quorum,
+                )
+                self._quorum_warned = True
+
         old_state = self._state
         if (
             self._state == FailoverState.STANDBY
@@ -639,11 +664,16 @@ class FailoverEngine(Engine):
 
     async def check_health(self) -> EngineHealth:
         """Return failover engine health."""
-        self.health.status = EngineStatus.RUNNING
-        self.health.message = f"State: {self._state.value}"
+        if self._quorum_warned:
+            self.health.status = EngineStatus.DEGRADED
+            self.health.message = f"State: {self._state.value} — quorum unreachable"
+        else:
+            self.health.status = EngineStatus.RUNNING
+            self.health.message = f"State: {self._state.value}"
         self.health.details = {
             "state": self._state.value,
             "active_votes": len(self._active_votes()),
+            "quorum_reached": not self._quorum_warned,
         }
         return self.health
 
@@ -656,4 +686,7 @@ class FailoverEngine(Engine):
             "total_transitions": len(self._transitions),
             "consecutive_down": self._consecutive_down,
             "consecutive_up": self._consecutive_up,
+            "quorum": self._quorum,
+            "quorum_reached": int(not self._quorum_warned),
+            "last_quorum_reached": self._last_quorum_reached,
         }

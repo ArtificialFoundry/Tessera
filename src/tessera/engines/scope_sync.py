@@ -136,21 +136,30 @@ class ScopeSyncEngine(Engine):
     ) -> dict[str, int]:
         """Sync all scopes from active to a single candidate.
 
+        Takes atomic snapshots of both servers before diffing to
+        avoid mid-sync conflicts.
+
         Returns:
             Dict with scopes_synced and reservations_synced counts.
         """
+
         result = {"scopes_synced": 0, "reservations_synced": 0}
+
+        # Atomic snapshot: read all scope data from both servers upfront
         active_scopes = await active_client.list_scopes()
+        active_data: dict[str, list[dict[str, Any]]] = {}
+        candidate_data: dict[str, list[dict[str, Any]]] = {}
 
         for scope_info in active_scopes:
             scope_name: str = scope_info.get("name", "")
             if not scope_name:
                 continue
-
             active_detail = await active_client.get_scope(scope_name)
+            active_data[scope_name] = active_detail.get("reservedLeases", [])
 
             try:
                 candidate_detail = await candidate_client.get_scope(scope_name)
+                candidate_data[scope_name] = candidate_detail.get("reservedLeases", [])
             except Exception:
                 sname = getattr(candidate_client, "server_name", "unknown")
                 logger.warning(
@@ -158,15 +167,25 @@ class ScopeSyncEngine(Engine):
                     scope_name,
                     sname,
                 )
+
+        # Re-read active to detect mid-snapshot changes
+        snap_check = await active_client.list_scopes()
+        snap_names = {s.get("name", "") for s in snap_check}
+        orig_names = {s.get("name", "") for s in active_scopes}
+        if snap_names != orig_names:
+            sname = getattr(candidate_client, "server_name", "unknown")
+            logger.warning(
+                "Active scope set changed during snapshot for %s — retrying next cycle",
+                sname,
+            )
+            return result
+
+        # Apply diffs from the frozen snapshots
+        for scope_name, active_reservations in active_data.items():
+            if scope_name not in candidate_data:
                 continue
 
-            active_reservations: list[dict[str, Any]] = active_detail.get(
-                "reservedLeases", []
-            )
-            candidate_reservations: list[dict[str, Any]] = candidate_detail.get(
-                "reservedLeases", []
-            )
-
+            candidate_reservations = candidate_data[scope_name]
             candidate_macs = {
                 r.get("hardwareAddress", "").upper() for r in candidate_reservations
             }
