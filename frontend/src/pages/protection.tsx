@@ -11,7 +11,7 @@ import "@/styles/tessera.css";
 const backups = signal<BackupManifest[]>([]);
 const backupsPagination = signal<PaginationMeta>({ total: 0, offset: 0, limit: 20 });
 const enforcement = signal<EnforcementStatus>({
-  mode: "off", pinned_backup_id: "", check_interval: 300,
+  mode: "off", pinned_backup_id: "", pin_source: "none", check_interval: 300,
   last_check: 0, last_drift: 0, drift_count: 0, restore_count: 0,
   backup_on_pin: true, auto_restore_cooldown: 60, max_history: 50, history: [],
   history_pagination: { total: 0, offset: 0, limit: 20 },
@@ -128,8 +128,13 @@ function EnforcementControls() {
       <div class="card fade-up fade-up-2" style="margin-bottom:24px;padding:20px">
         <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
           <div style="flex:1;min-width:200px">
-            <div style="font-size:13px;color:var(--text-dim);margin-bottom:4px">Pinned Backup</div>
-            <div style="font-family:var(--mono);font-size:14px">{enf.pinned_backup_id || "None"}</div>
+            <div style="font-size:13px;color:var(--text-dim);margin-bottom:4px">Pinned State</div>
+            <div style="font-family:var(--mono);font-size:14px">
+              {enf.pinned_backup_id
+                ? <>{enf.pinned_backup_id} <span style="font-size:11px;padding:2px 6px;border-radius:4px;background:var(--bg-hover);color:var(--text-dim)">{enf.pin_source === "live" ? "🔄 live — writes allowed" : "🔒 backup — writes blocked"}</span></>
+                : "None"
+              }
+            </div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button class={`btn btn-sm${enf.mode === "off" ? " btn-primary" : ""}`} onClick={() => setMode("off")} disabled={enf.mode === "off"}>Off</button>

@@ -67,6 +67,14 @@ class DriftEvent:
     last_seen: float = 0.0
 
 
+class PinSource(StrEnum):
+    """How the current pin was established."""
+
+    NONE = auto()
+    BACKUP = auto()
+    LIVE = auto()
+
+
 @dataclass(slots=True)
 class EnforcementState:
     """Current enforcement engine state.
@@ -74,6 +82,7 @@ class EnforcementState:
     Attributes:
         mode: Current operating mode.
         pinned_backup_id: ID of the backup used as desired state.
+        pin_source: Whether pinned from an immutable backup or live state.
         check_interval: Seconds between drift checks.
         last_check: Unix timestamp of last check.
         last_drift: Unix timestamp of last drift detection.
@@ -84,6 +93,7 @@ class EnforcementState:
 
     mode: EnforcementMode = EnforcementMode.OFF
     pinned_backup_id: str = ""
+    pin_source: PinSource = PinSource.NONE
     check_interval: int = 300
     last_check: float = 0.0
     last_drift: float = 0.0
@@ -159,6 +169,11 @@ class EnforcementEngine(Engine):
             self._state.mode = EnforcementMode(saved["mode"])
         if saved.get("pinned_backup_id"):
             self._state.pinned_backup_id = saved["pinned_backup_id"]
+        if "pin_source" in saved:
+            self._state.pin_source = PinSource(saved["pin_source"])
+        elif saved.get("pinned_backup_id"):
+            # Migrate: existing pins are always from backup
+            self._state.pin_source = PinSource.BACKUP
         logger.info(
             "Enforcement settings restored: mode=%s, interval=%ds, pinned=%s",
             self._state.mode,
@@ -179,6 +194,7 @@ class EnforcementEngine(Engine):
                 "auto_restore_cooldown": self._state.auto_restore_cooldown,
                 "max_history": self._state.max_history,
                 "pinned_backup_id": self._state.pinned_backup_id,
+                "pin_source": str(self._state.pin_source),
             },
         )
 
@@ -268,7 +284,12 @@ class EnforcementEngine(Engine):
         )
         old_pin = self._state.pinned_backup_id
         self._state.pinned_backup_id = manifest.backup_id
-        logger.info("Drift accepted: new pin %s (was %s)", manifest.backup_id, old_pin)
+        self._state.pin_source = PinSource.LIVE
+        logger.info(
+            "Drift accepted: new pin %s (was %s)",
+            manifest.backup_id,
+            old_pin,
+        )
         self._persist_settings()
         return manifest.backup_id
 
@@ -291,9 +312,49 @@ class EnforcementEngine(Engine):
             description="Pinned from live state"
         )
         self._state.pinned_backup_id = manifest.backup_id
+        self._state.pin_source = PinSource.LIVE
         logger.info("Pinned live state as %s", manifest.backup_id)
         self._persist_settings()
         return manifest.backup_id
+
+    def check_write_allowed(self) -> None:
+        """Raise if DHCP writes are blocked by an immutable backup pin.
+
+        Call this before any DHCP mutation through Tessera's API.
+        Only blocks when a backup is pinned (immutable). Live pins
+        allow writes and auto-re-pin.
+
+        Raises:
+            EnforcementError: If an immutable backup is pinned.
+        """
+        if self._state.pinned_backup_id and self._state.pin_source == PinSource.BACKUP:
+            raise EnforcementError(
+                f"Cannot modify DHCP state: immutable backup "
+                f"'{self._state.pinned_backup_id}' is pinned. "
+                f"Unpin or switch to live pin first."
+            )
+
+    async def notify_dhcp_write(self) -> None:
+        """Update the live pin after a DHCP mutation through Tessera.
+
+        Call this after every successful DHCP write. Only acts when a
+        live pin is active — re-snapshots the current state so enforcement
+        stays in sync with Tessera-initiated changes.
+        """
+        if (
+            self._state.pinned_backup_id
+            and self._state.pin_source == PinSource.LIVE
+            and self._backup_engine
+        ):
+            manifest = await self._backup_engine.create_backup(
+                description="Auto-repin after DHCP change"
+            )
+            self._state.pinned_backup_id = manifest.backup_id
+            logger.info(
+                "Auto-repinned live state as %s",
+                manifest.backup_id,
+            )
+            self._persist_settings()
 
     async def pin_backup(self, backup_id: str) -> None:
         """Pin a backup as the desired state.
@@ -313,12 +374,14 @@ class EnforcementEngine(Engine):
         # Validate backup exists
         await self._backup_engine.get_backup(backup_id)
         self._state.pinned_backup_id = backup_id
-        logger.info("Pinned backup: %s", backup_id)
+        self._state.pin_source = PinSource.BACKUP
+        logger.info("Pinned backup: %s (immutable)", backup_id)
         self._persist_settings()
 
     def unpin(self) -> None:
         """Remove the pinned backup and switch to OFF mode."""
         self._state.pinned_backup_id = ""
+        self._state.pin_source = PinSource.NONE
         self.set_mode(EnforcementMode.OFF)
         logger.info("Unpinned backup, enforcement OFF")
         self._persist_settings()

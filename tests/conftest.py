@@ -160,6 +160,10 @@ async def client(
     app.dependency_overrides[get_enforcement_engine] = lambda: enforcement_engine
     app.dependency_overrides[get_voter_registry] = lambda: voter_registry
     app.dependency_overrides[require_admin] = lambda: None
+
+    from tessera.deps import dhcp_write_guard
+
+    app.dependency_overrides[dhcp_write_guard] = lambda: enforcement_engine
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c

@@ -342,6 +342,7 @@ class TestBackupChecksumIntegrity:
         await engine.start()
         m = await engine.create_backup("corrupt test")
         fp = engine.backup_dir / f"{m.backup_id}.json"
+        fp.chmod(0o644)  # unlock immutable backup for tampering test
         data = json.loads(fp.read_text())
         data["checksum"] = "deadbeef"
         fp.write_text(json.dumps(data))
@@ -362,6 +363,7 @@ class TestBackupChecksumIntegrity:
         time.sleep(1.1)
         m2 = await engine.create_backup("corrupt")
         fp = engine.backup_dir / f"{m2.backup_id}.json"
+        fp.chmod(0o644)  # unlock immutable backup for tampering test
         data = json.loads(fp.read_text())
         data["checksum"] = "bad"
         fp.write_text(json.dumps(data))

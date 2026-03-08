@@ -14,9 +14,14 @@ from tessera.api.schemas import (
     MessageResponse,
     PaginationMeta,
 )
-from tessera.deps import get_technitium_client, require_admin
+from tessera.deps import (
+    dhcp_write_guard,
+    get_technitium_client,
+    require_admin,
+)
 
 if TYPE_CHECKING:
+    from tessera.engines.enforcement import EnforcementEngine
     from tessera.engines.technitium import TechnitiumClient
 
 router = APIRouter()
@@ -104,9 +109,11 @@ async def remove_lease(
     scope_name: str,
     address: str,
     client: TechnitiumClient = Depends(get_technitium_client),
+    enforcement: EnforcementEngine = Depends(dhcp_write_guard),
 ) -> MessageResponse:
     """Remove a lease from a scope."""
     await client.remove_lease(scope_name, address=address)
+    await enforcement.notify_dhcp_write()
     return MessageResponse(message=f"Lease removed: {address}")
 
 
@@ -119,6 +126,7 @@ async def convert_lease(
     scope_name: str,
     address: str,
     client: TechnitiumClient = Depends(get_technitium_client),
+    enforcement: EnforcementEngine = Depends(dhcp_write_guard),
 ) -> MessageResponse:
     """Convert a dynamic lease to a reserved lease."""
     all_leases = await client.get_leases(scope_name)
@@ -145,5 +153,6 @@ async def convert_lease(
         host_name=host,
         comments="Converted from dynamic lease",
     )
+    await enforcement.notify_dhcp_write()
 
     return MessageResponse(message=f"Lease converted to reservation: {address}")

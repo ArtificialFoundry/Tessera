@@ -198,6 +198,7 @@ export interface DriftChange {
 export interface EnforcementStatus {
   mode: string;
   pinned_backup_id: string;
+  pin_source: string;
   check_interval: number;
   last_check: number;
   last_drift: number;

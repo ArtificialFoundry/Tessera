@@ -42,6 +42,7 @@ async def get_enforcement_status(
     return EnforcementStatusResponse(
         mode=state.mode.value,
         pinned_backup_id=state.pinned_backup_id,
+        pin_source=state.pin_source.value,
         check_interval=state.check_interval,
         last_check=state.last_check,
         last_drift=state.last_drift,

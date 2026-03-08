@@ -289,7 +289,7 @@ def create_app() -> FastAPI:
             ErrorCode.ENFORCEMENT_ERROR,
             ErrorCode.REGISTRATION_ERROR,
         ):
-            status = 400
+            status = 409 if "Cannot modify" in str(exc) else 400
         elif exc.code == ErrorCode.PAYLOAD_TOO_LARGE:
             status = 413
         return _error_json(exc.code.value, str(exc), status)

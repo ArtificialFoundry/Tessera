@@ -308,6 +308,7 @@ class EnforcementStatusResponse(BaseModel):
 
     mode: str
     pinned_backup_id: str
+    pin_source: str
     check_interval: int
     last_check: float
     last_drift: float

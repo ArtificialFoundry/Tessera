@@ -259,3 +259,17 @@ async def require_admin(
         _record_auth_failure(client_ip)
         logger.warning("Admin auth: invalid API key from %s", client_ip)
         raise AuthenticationError("Invalid API key")
+
+
+def dhcp_write_guard(
+    engine: EnforcementEngine = Depends(get_enforcement_engine),  # noqa: B008
+) -> EnforcementEngine:
+    """Reject DHCP mutations when an immutable backup is pinned.
+
+    Returns the enforcement engine for post-write notification.
+
+    Raises:
+        EnforcementError: If a backup pin is active (immutable state).
+    """
+    engine.check_write_allowed()
+    return engine

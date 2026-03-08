@@ -459,6 +459,8 @@ class BackupEngine(Engine):
         def _write() -> None:
             with self._fs_lock:
                 atomic_write(filepath, content)
+                # Make backup file read-only (immutable)
+                filepath.chmod(0o444)
 
         await asyncio.to_thread(_write)
 
@@ -535,6 +537,8 @@ class BackupEngine(Engine):
             filepath = self._backup_dir / f"{backup_id}.json"
             if not filepath.is_file():
                 raise NotFoundError("Backup", backup_id)
+            # Remove read-only before unlinking
+            filepath.chmod(0o644)
             filepath.unlink()
         logger.info("Backup deleted: %s", backup_id)
 

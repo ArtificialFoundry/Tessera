@@ -15,10 +15,15 @@ from tessera.api.schemas import (
     ScopesResponse,
     ScopeUpdateRequest,
 )
-from tessera.deps import get_technitium_client, require_admin
+from tessera.deps import (
+    dhcp_write_guard,
+    get_technitium_client,
+    require_admin,
+)
 from tessera.exceptions import TechnitiumError
 
 if TYPE_CHECKING:
+    from tessera.engines.enforcement import EnforcementEngine
     from tessera.engines.technitium import TechnitiumClient
 
 router = APIRouter()
@@ -53,6 +58,7 @@ async def list_scopes(
 async def create_scope(
     body: ScopeCreateRequest,
     client: TechnitiumClient = Depends(get_technitium_client),
+    enforcement: EnforcementEngine = Depends(dhcp_write_guard),
 ) -> MessageResponse:
     """Create a new DHCP scope."""
     settings: dict[str, str] = {
@@ -73,6 +79,7 @@ async def create_scope(
     if body.lease_time_minutes is not None:
         settings["leaseTimeMinutes"] = str(body.lease_time_minutes)
     await client.set_scope(body.name, settings)
+    await enforcement.notify_dhcp_write()
 
     return MessageResponse(message=f"Scope '{body.name}' created")
 
@@ -106,11 +113,13 @@ async def update_scope(
     name: str,
     body: ScopeUpdateRequest,
     client: TechnitiumClient = Depends(get_technitium_client),
+    enforcement: EnforcementEngine = Depends(dhcp_write_guard),
 ) -> MessageResponse:
     """Update scope settings."""
     settings_dict: dict[str, object] = dict(body.settings)
     str_settings = {k: str(v) for k, v in settings_dict.items()}
     await client.set_scope(name, str_settings)
+    await enforcement.notify_dhcp_write()
 
     return MessageResponse(message=f"Scope '{name}' updated")
 
@@ -123,9 +132,11 @@ async def update_scope(
 async def delete_scope(
     name: str,
     client: TechnitiumClient = Depends(get_technitium_client),
+    enforcement: EnforcementEngine = Depends(dhcp_write_guard),
 ) -> MessageResponse:
     """Delete a DHCP scope."""
     await client.delete_scope(name)
+    await enforcement.notify_dhcp_write()
     return MessageResponse(message=f"Scope '{name}' deleted")
 
 
@@ -137,9 +148,11 @@ async def delete_scope(
 async def enable_scope(
     name: str,
     client: TechnitiumClient = Depends(get_technitium_client),
+    enforcement: EnforcementEngine = Depends(dhcp_write_guard),
 ) -> MessageResponse:
     """Enable a DHCP scope."""
     await client.enable_scope(name)
+    await enforcement.notify_dhcp_write()
     return MessageResponse(message=f"Scope '{name}' enabled")
 
 
@@ -151,9 +164,11 @@ async def enable_scope(
 async def disable_scope(
     name: str,
     client: TechnitiumClient = Depends(get_technitium_client),
+    enforcement: EnforcementEngine = Depends(dhcp_write_guard),
 ) -> MessageResponse:
     """Disable a DHCP scope."""
     await client.disable_scope(name)
+    await enforcement.notify_dhcp_write()
     return MessageResponse(message=f"Scope '{name}' disabled")
 
 
@@ -166,6 +181,7 @@ async def add_reservation(
     name: str,
     body: ReservationRequest,
     client: TechnitiumClient = Depends(get_technitium_client),
+    enforcement: EnforcementEngine = Depends(dhcp_write_guard),
 ) -> MessageResponse:
     """Add a DHCP reservation to a scope."""
     await client.add_reservation(
@@ -175,6 +191,7 @@ async def add_reservation(
         host_name=body.host_name,
         comments=body.comments,
     )
+    await enforcement.notify_dhcp_write()
 
     return MessageResponse(
         message=(f"Reservation added: {body.hardware_address} → {body.address}")
@@ -191,6 +208,7 @@ async def update_reservation(
     mac: str,
     body: ReservationRequest,
     client: TechnitiumClient = Depends(get_technitium_client),
+    enforcement: EnforcementEngine = Depends(dhcp_write_guard),
 ) -> MessageResponse:
     """Update an existing DHCP reservation."""
     await client.add_reservation(
@@ -200,6 +218,7 @@ async def update_reservation(
         host_name=body.host_name,
         comments=body.comments,
     )
+    await enforcement.notify_dhcp_write()
 
     return MessageResponse(message=f"Reservation updated: {mac} → {body.address}")
 
@@ -213,7 +232,9 @@ async def remove_reservation(
     name: str,
     mac: str,
     client: TechnitiumClient = Depends(get_technitium_client),
+    enforcement: EnforcementEngine = Depends(dhcp_write_guard),
 ) -> MessageResponse:
     """Remove a DHCP reservation from a scope."""
     await client.remove_reservation(name, hardware_address=mac)
+    await enforcement.notify_dhcp_write()
     return MessageResponse(message=f"Reservation removed: {mac}")
