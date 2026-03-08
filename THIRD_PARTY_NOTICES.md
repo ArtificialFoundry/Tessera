@@ -11,7 +11,7 @@ their authors and contributors.
 
 - **Version:** 0.135.1
 - **License:** MIT
-- **Author:** Sebastián Ram�rez ([@tiangolo](https://github.com/tiangolo))
+- **Author:** Sebastián Ramírez ([@tiangolo](https://github.com/tiangolo))
 - **URL:** <https://github.com/fastapi/fastapi>
 
 ### Starlette
