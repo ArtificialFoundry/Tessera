@@ -86,7 +86,6 @@ class TechnitiumClient(Engine):
             verify = False
         elif self._ca_cert_file:
             verify = self._ca_cert_file
-            verify = False
         if verify is False and self._base_url not in TechnitiumClient._tls_warned_urls:
             TechnitiumClient._tls_warned_urls.add(self._base_url)
             logger.error(

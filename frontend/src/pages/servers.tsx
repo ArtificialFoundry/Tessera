@@ -127,7 +127,7 @@ function AddServerForm() {
       </div>
       <div class="form-field">
         <label class="form-label">API Token <span style="color:var(--text-dim);font-weight:normal">(optional, overrides global)</span></label>
-        <input class="input" type="password" placeholder="Per-server Technitium token" value={token} onInput={(e) => setToken((e.target as HTMLInputElement).value)} />
+        <input class="input" type="password" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore placeholder="Per-server Technitium token" value={token} onInput={(e) => setToken((e.target as HTMLInputElement).value)} />
       </div>
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
         <button class="btn btn-ghost" onClick={closeModal}>Cancel</button>

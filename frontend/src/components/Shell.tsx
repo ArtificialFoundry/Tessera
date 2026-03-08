@@ -183,6 +183,8 @@ function AuthDialog() {
     if (open) { setTokenInput(""); setError(""); setVerifying(false); }
   }, [open]);
 
+  if (!open) return null;
+
   async function handleSubmit() {
     const trimmed = tokenInput.trim();
     if (!trimmed) { setError("Token is required"); return; }
@@ -206,7 +208,7 @@ function AuthDialog() {
   }
 
   return (
-    <div class={`modal-overlay${open ? " open" : ""}`} onClick={(e) => { if (e.target === e.currentTarget) cancelAuth(); }}>
+    <div class="modal-overlay open" onClick={(e) => { if (e.target === e.currentTarget) cancelAuth(); }}>
       <div class="modal" style="width:420px">
         <button class="modal-close" onClick={cancelAuth}>✕</button>
         <h2>🔐 Admin Authentication</h2>
@@ -216,6 +218,10 @@ function AuthDialog() {
         <input
           class="input"
           type="password"
+          autocomplete="off"
+          data-1p-ignore
+          data-lpignore="true"
+          data-bwignore
           placeholder="Admin API key"
           value={tokenInput}
           onInput={(e) => { setTokenInput((e.target as HTMLInputElement).value); setError(""); }}
