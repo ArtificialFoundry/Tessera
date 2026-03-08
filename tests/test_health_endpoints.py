@@ -15,19 +15,24 @@ class TestHealthEndpoint:
     """Tests for /api/v1/health."""
 
     async def test_shallow_health(self, client: AsyncClient) -> None:
-        """Default health check returns engine statuses."""
+        """Default health check returns engine statuses with timestamps."""
         resp = await client.get("/api/v1/health")
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] in ("healthy", "degraded")
         assert "engines" in data
+        assert "checked_at" in data
+        # Every engine should have checked_at
+        for _name, engine in data["engines"].items():
+            assert "checked_at" in engine
 
     async def test_deep_health_flag(self, client: AsyncClient) -> None:
-        """Deep health check includes dependency probes."""
+        """Deep health check returns without error."""
         resp = await client.get("/api/v1/health?deep=true")
         assert resp.status_code == 200
         data = resp.json()
         assert "engines" in data
+        assert "checked_at" in data
 
 
 @pytest.mark.asyncio
@@ -45,8 +50,7 @@ class TestMetricsEndpoint:
         assert "# TYPE" in body
 
     async def test_metrics_contains_engine_gauges(self, client: AsyncClient) -> None:
-        """Each registered engine has a health gauge."""
+        """Metrics output contains HELP/TYPE headers."""
         resp = await client.get("/api/v1/metrics")
         body = resp.text
-        # Should have at least the failover engine metric
         assert "tessera_engine_health" in body

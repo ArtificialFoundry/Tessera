@@ -8,6 +8,7 @@ The **engine registry** tracks business-logic units with lifecycle hooks
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 from enum import StrEnum, auto
 from typing import TYPE_CHECKING, Any
@@ -108,11 +109,13 @@ class EngineHealth:
         status: Current lifecycle status.
         message: Human-readable status note.
         details: Arbitrary key/value diagnostic data.
+        last_checked: Unix timestamp of last health evaluation.
     """
 
     status: EngineStatus = EngineStatus.REGISTERED
     message: str = ""
     details: dict[str, Any] = field(default_factory=dict)
+    last_checked: float = 0.0
 
 
 class Engine:
@@ -234,14 +237,18 @@ class EngineRegistry:
         Returns:
             Mapping of engine name to its health snapshot.
         """
+        now = time.time()
         results: dict[str, EngineHealth] = {}
         for name, engine in self._engines.items():
             try:
-                results[name] = await engine.check_health()
+                h = await engine.check_health()
+                h.last_checked = now
+                results[name] = h
             except Exception:
                 logger.exception("Health check failed: %s", name)
                 results[name] = EngineHealth(
                     status=EngineStatus.DEGRADED,
                     message="Health check threw an exception",
+                    last_checked=now,
                 )
         return results

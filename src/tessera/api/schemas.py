@@ -14,12 +14,14 @@ class EngineHealthResponse(BaseModel):
 
     status: str
     message: str
+    checked_at: str | None = None
 
 
 class HealthResponse(BaseModel):
     """Aggregate health across all engines."""
 
     status: str
+    checked_at: str
     engines: dict[str, EngineHealthResponse]
 
 
