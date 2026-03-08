@@ -28,8 +28,30 @@ from tessera.registry import Engine, EngineHealth, EngineStatus
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from cryptography.fernet import Fernet
+
     from tessera.engines.technitium import DhcpClientProtocol
     from tessera.settings_store import SettingsStore
+
+
+_ENCRYPTION_HEADER = b"TESSERA_ENC_V1\n"
+
+
+def _make_fernet(passphrase: str) -> Fernet:
+    """Derive a Fernet key from a passphrase using PBKDF2."""
+    import base64
+
+    from cryptography.fernet import Fernet
+    from cryptography.hazmat.primitives.hashes import SHA256
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
+    # Fixed salt — deterministic key from passphrase.
+    # Security comes from the passphrase strength, not the salt.
+    salt = b"tessera-backup-encryption-v1"
+    kdf = PBKDF2HMAC(algorithm=SHA256(), length=32, salt=salt, iterations=600_000)
+    key = base64.urlsafe_b64encode(kdf.derive(passphrase.encode()))
+    return Fernet(key)
+
 
 logger = logging.getLogger(__name__)
 
@@ -179,6 +201,7 @@ class BackupEngine(Engine):
         auto_interval: int = 0,
         cron_schedule: str = "",
         settings_store: SettingsStore | None = None,
+        encryption_key: str = "",
     ) -> None:
         super().__init__()
         self._backup_dir = backup_dir
@@ -196,6 +219,7 @@ class BackupEngine(Engine):
         self._consecutive_failures: int = 0
         self._backoff_seconds: float = 60.0
         self._fs_lock = threading.Lock()
+        self._fernet = _make_fernet(encryption_key) if encryption_key else None
 
         # Restore persisted settings (override defaults)
         self._restore_settings()
@@ -341,11 +365,12 @@ class BackupEngine(Engine):
         self._backup_dir.mkdir(parents=True, exist_ok=True)
         self._manage_auto_task()
         logger.info(
-            "BackupEngine started (dir=%s, max=%d, auto=%s, cron='%s')",
+            "BackupEngine started (dir=%s, max=%d, auto=%s, cron='%s', encrypted=%s)",
             self._backup_dir,
             self._max_backups,
             self._auto_enabled,
             self._cron_schedule,
+            self._fernet is not None,
         )
 
     async def stop(self) -> None:
@@ -458,7 +483,13 @@ class BackupEngine(Engine):
 
         def _write() -> None:
             with self._fs_lock:
-                atomic_write(filepath, content)
+                if self._fernet:
+                    encrypted = _ENCRYPTION_HEADER + self._fernet.encrypt(
+                        content.encode()
+                    )
+                    filepath.write_bytes(encrypted)
+                else:
+                    atomic_write(filepath, content)
                 # Make backup file read-only (immutable)
                 filepath.chmod(0o444)
 
@@ -477,6 +508,28 @@ class BackupEngine(Engine):
         )
         return manifest
 
+    def _read_backup_text(self, filepath: Path) -> str:
+        """Read backup file, decrypting if needed.
+
+        Raises:
+            BackupError: If decryption fails.
+        """
+        raw_bytes = filepath.read_bytes()
+        if raw_bytes.startswith(_ENCRYPTION_HEADER):
+            if not self._fernet:
+                raise BackupError(
+                    f"Backup '{filepath.name}' is encrypted but no "
+                    f"encryption key is configured"
+                )
+            try:
+                ciphertext = raw_bytes[len(_ENCRYPTION_HEADER) :]
+                return self._fernet.decrypt(ciphertext).decode()
+            except Exception as exc:
+                raise BackupError(
+                    f"Failed to decrypt backup '{filepath.name}': {exc}"
+                ) from exc
+        return raw_bytes.decode()
+
     async def list_backups(self) -> list[BackupManifest]:
         """List all stored backups, newest first.
 
@@ -491,8 +544,9 @@ class BackupEngine(Engine):
         with self._fs_lock:
             for filepath in sorted(self._backup_dir.glob("*.json"), reverse=True):
                 try:
-                    raw = filepath.read_text()
-                except FileNotFoundError:
+                    raw = self._read_backup_text(filepath)
+                except (FileNotFoundError, BackupError):
+                    logger.warning("Skipping unreadable backup: %s", filepath.name)
                     continue
                 try:
                     data = json.loads(raw)
@@ -519,7 +573,7 @@ class BackupEngine(Engine):
         filepath = self._backup_dir / f"{backup_id}.json"
         if not filepath.is_file():
             raise NotFoundError("Backup", backup_id)
-        text = await asyncio.to_thread(filepath.read_text)
+        text = await asyncio.to_thread(self._read_backup_text, filepath)
         data = json.loads(text)
         self._verify_checksum(data, backup_id)
         return BackupData.from_dict(data)
@@ -807,8 +861,9 @@ class BackupEngine(Engine):
             for filepath in sorted(self._backup_dir.glob("*.json")):
                 total += 1
                 try:
-                    raw = filepath.read_text()
-                except FileNotFoundError:
+                    raw = self._read_backup_text(filepath)
+                except (FileNotFoundError, BackupError):
+                    failures.append(filepath.name)
                     continue
                 try:
                     data = json.loads(raw)
@@ -851,4 +906,5 @@ class BackupEngine(Engine):
             "auto_enabled": self._auto_enabled,
             "cron_schedule": self._cron_schedule,
             "next_run": self._next_run,
+            "encrypted": self._fernet is not None,
         }

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
+from tessera.api.v1.audit import router as audit_router
 from tessera.api.v1.backups import router as backups_router
 from tessera.api.v1.enforcement import router as enforcement_router
 from tessera.api.v1.failover import router as failover_router
@@ -22,3 +23,4 @@ router.include_router(backups_router, prefix="/backups", tags=["backups"])
 router.include_router(enforcement_router, prefix="/enforcement", tags=["enforcement"])
 router.include_router(servers_router, tags=["servers"])
 router.include_router(voters_router, tags=["voters"])
+router.include_router(audit_router, prefix="/audit", tags=["audit"])

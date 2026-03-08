@@ -10,6 +10,7 @@ from httpx import ASGITransport, AsyncClient
 
 from tessera.app import create_app
 from tessera.deps import (
+    get_audit_engine,
     get_backup_engine,
     get_enforcement_engine,
     get_engine_registry,
@@ -20,11 +21,13 @@ from tessera.deps import (
     get_voter_registry,
     require_admin,
 )
+from tessera.engines.audit import AuditEngine
 from tessera.engines.backup import BackupEngine
 from tessera.engines.enforcement import EnforcementEngine
 from tessera.engines.failover import FailoverEngine
 from tessera.engines.technitium import TechnitiumClient, TechnitiumPool
 from tessera.engines.voter_registry import VoterRegistryEngine
+from tessera.engines.webhooks import WebhookEngine
 from tessera.registry import EngineRegistry, EngineStatus, ModuleRegistry
 
 if TYPE_CHECKING:
@@ -125,6 +128,18 @@ def enforcement_engine(backup_engine: BackupEngine) -> EnforcementEngine:
 
 
 @pytest.fixture
+def audit_engine(tmp_path: Path) -> AuditEngine:
+    """Fresh audit engine with temp directory."""
+    return AuditEngine(audit_dir=tmp_path / "audit")
+
+
+@pytest.fixture
+def webhook_engine() -> WebhookEngine:
+    """Webhook engine with no URLs (silent)."""
+    return WebhookEngine()
+
+
+@pytest.fixture
 def voter_registry(tmp_path: Path) -> VoterRegistryEngine:
     """Fresh voter registry with temp files."""
     return VoterRegistryEngine(
@@ -147,6 +162,8 @@ async def client(
     mock_pool: TechnitiumPool,
     backup_engine: BackupEngine,
     enforcement_engine: EnforcementEngine,
+    audit_engine: AuditEngine,
+    webhook_engine: WebhookEngine,
     voter_registry: VoterRegistryEngine,
 ) -> AsyncGenerator[AsyncClient]:
     """Async HTTP client with DI overrides for isolated tests."""
@@ -164,6 +181,11 @@ async def client(
     from tessera.deps import dhcp_write_guard
 
     app.dependency_overrides[dhcp_write_guard] = lambda: enforcement_engine
+    app.dependency_overrides[get_audit_engine] = lambda: audit_engine
+
+    from tessera.deps import get_webhook_engine
+
+    app.dependency_overrides[get_webhook_engine] = lambda: webhook_engine
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c

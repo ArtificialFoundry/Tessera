@@ -92,6 +92,8 @@ class Settings(BaseSettings):
     sync_interval: int = 300
     voters: str = "voter-1,voter-2,voter-3,voter-4,voter-5"
     backup_dir: Path = Path("/var/lib/tessera/backups")
+    backup_encryption_key: str = ""
+    webhook_urls: str = ""
     max_backups: int = 50
     auto_backup_interval: int = 3600
     backup_cron_schedule: str = ""

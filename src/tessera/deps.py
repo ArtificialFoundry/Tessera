@@ -16,6 +16,7 @@ from pathlib import Path
 from fastapi import Depends, Request
 
 from tessera.config import Settings
+from tessera.engines.audit import AuditEngine
 from tessera.engines.backup import BackupEngine
 from tessera.engines.config_watcher import ConfigWatcherEngine
 from tessera.engines.enforcement import EnforcementEngine
@@ -23,6 +24,7 @@ from tessera.engines.failover import FailoverEngine
 from tessera.engines.scope_sync import ScopeSyncEngine
 from tessera.engines.technitium import TechnitiumClient, TechnitiumPool
 from tessera.engines.voter_registry import VoterRegistryEngine
+from tessera.engines.webhooks import WebhookEngine
 from tessera.exceptions import (
     AppError,
     AuthenticationError,
@@ -96,6 +98,7 @@ def get_engine_registry() -> EngineRegistry:
         auto_interval=settings.auto_backup_interval,
         cron_schedule=settings.backup_cron_schedule,
         settings_store=settings_store,
+        encryption_key=settings.backup_encryption_key,
     )
     backup.set_active_client(active_client)
     registry.register(backup)
@@ -122,6 +125,17 @@ def get_engine_registry() -> EngineRegistry:
     voter_registry.set_on_keys_changed(failover.update_voter_keys)
     failover.set_voter_registry(voter_registry)
     registry.register(voter_registry)
+
+    # Audit engine
+    audit = AuditEngine(
+        audit_dir=settings.backup_dir.parent / "audit",
+    )
+    registry.register(audit)
+
+    # Webhook engine
+    webhook_urls = [u.strip() for u in settings.webhook_urls.split(",") if u.strip()]
+    webhooks = WebhookEngine(urls=webhook_urls)
+    registry.register(webhooks)
 
     # Config watcher engine
     config_watcher = ConfigWatcherEngine(
@@ -179,6 +193,22 @@ def get_enforcement_engine() -> EnforcementEngine:
     engine = get_engine_registry().get("enforcement")
     if not isinstance(engine, EnforcementEngine):
         raise AppError("Expected EnforcementEngine")
+    return engine
+
+
+def get_audit_engine() -> AuditEngine:
+    """Return the audit engine from the registry."""
+    engine = get_engine_registry().get("audit")
+    if not isinstance(engine, AuditEngine):
+        raise AppError("Expected AuditEngine")
+    return engine
+
+
+def get_webhook_engine() -> WebhookEngine:
+    """Return the webhook engine from the registry."""
+    engine = get_engine_registry().get("webhooks")
+    if not isinstance(engine, WebhookEngine):
+        raise AppError("Expected WebhookEngine")
     return engine
 
 

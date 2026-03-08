@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from tessera.api.schemas import (
     AcceptDriftResponse,
@@ -16,11 +16,23 @@ from tessera.api.schemas import (
     PaginationMeta,
     PinBackupRequest,
 )
-from tessera.deps import get_enforcement_engine, require_admin
+from tessera.deps import (
+    get_audit_engine,
+    get_enforcement_engine,
+    get_webhook_engine,
+    require_admin,
+)
 from tessera.engines.enforcement import EnforcementMode
 
 if TYPE_CHECKING:
+    from tessera.engines.audit import AuditEngine
     from tessera.engines.enforcement import EnforcementEngine
+    from tessera.engines.webhooks import WebhookEngine
+
+
+def _actor(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
 
 router = APIRouter()
 
@@ -66,8 +78,11 @@ async def get_enforcement_status(
     dependencies=[Depends(require_admin)],
 )
 async def set_enforcement_mode(
+    request: Request,
     body: EnforcementModeRequest,
     engine: EnforcementEngine = Depends(get_enforcement_engine),
+    audit: AuditEngine = Depends(get_audit_engine),
+    webhooks: WebhookEngine = Depends(get_webhook_engine),
 ) -> MessageResponse:
     """Change enforcement mode (off / monitor / enforce)."""
     try:
@@ -79,6 +94,8 @@ async def set_enforcement_mode(
         ) from exc
 
     engine.set_mode(mode)
+    audit.record("enforcement.mode", _actor(request), mode.value)
+    webhooks.notify("enforcement.mode_changed", detail=f"Mode set to {mode.value}")
     return MessageResponse(message=f"Enforcement mode set to {mode.value}")
 
 
@@ -88,11 +105,19 @@ async def set_enforcement_mode(
     dependencies=[Depends(require_admin)],
 )
 async def pin_backup(
+    request: Request,
     body: PinBackupRequest,
     engine: EnforcementEngine = Depends(get_enforcement_engine),
+    audit: AuditEngine = Depends(get_audit_engine),
+    webhooks: WebhookEngine = Depends(get_webhook_engine),
 ) -> MessageResponse:
     """Pin a backup as the desired DHCP state."""
     await engine.pin_backup(body.backup_id)
+    audit.record("enforcement.pin_backup", _actor(request), body.backup_id)
+    webhooks.notify(
+        "enforcement.pinned",
+        detail=f"Backup {body.backup_id} pinned (immutable)",
+    )
     return MessageResponse(message=f"Pinned backup '{body.backup_id}' as desired state")
 
 
@@ -102,10 +127,15 @@ async def pin_backup(
     dependencies=[Depends(require_admin)],
 )
 async def unpin_backup(
+    request: Request,
     engine: EnforcementEngine = Depends(get_enforcement_engine),
+    audit: AuditEngine = Depends(get_audit_engine),
+    webhooks: WebhookEngine = Depends(get_webhook_engine),
 ) -> MessageResponse:
     """Unpin the current backup and disable enforcement."""
     engine.unpin()
+    audit.record("enforcement.unpin", _actor(request))
+    webhooks.notify("enforcement.unpinned", detail="Enforcement disabled")
     return MessageResponse(message="Unpinned backup, enforcement disabled")
 
 
@@ -116,9 +146,16 @@ async def unpin_backup(
 )
 async def check_drift(
     engine: EnforcementEngine = Depends(get_enforcement_engine),
+    webhooks: WebhookEngine = Depends(get_webhook_engine),
 ) -> DriftCheckResponse:
     """Manually trigger a drift check."""
     result = await engine.check_drift()
+    if result["drift_detected"]:
+        webhooks.notify(
+            "drift.detected",
+            detail=f"{result.get('total_changes', 0)} changes detected",
+            data={"action": result.get("action", "none")},
+        )
 
     return DriftCheckResponse(
         drift_detected=result["drift_detected"],
@@ -154,10 +191,15 @@ async def update_enforcement_settings(
     dependencies=[Depends(require_admin)],
 )
 async def accept_drift(
+    request: Request,
     engine: EnforcementEngine = Depends(get_enforcement_engine),
+    audit: AuditEngine = Depends(get_audit_engine),
+    webhooks: WebhookEngine = Depends(get_webhook_engine),
 ) -> AcceptDriftResponse:
     """Accept current drift by snapshotting live state."""
     new_id = await engine.accept_drift()
+    audit.record("enforcement.accept_drift", _actor(request), new_id)
+    webhooks.notify("drift.accepted", detail=f"New pin: {new_id}")
 
     return AcceptDriftResponse(
         new_backup_id=new_id,
@@ -171,10 +213,15 @@ async def accept_drift(
     dependencies=[Depends(require_admin)],
 )
 async def pin_live(
+    request: Request,
     engine: EnforcementEngine = Depends(get_enforcement_engine),
+    audit: AuditEngine = Depends(get_audit_engine),
+    webhooks: WebhookEngine = Depends(get_webhook_engine),
 ) -> AcceptDriftResponse:
     """Snapshot current live DHCP state and pin it directly."""
     new_id = await engine.pin_live()
+    audit.record("enforcement.pin_live", _actor(request), new_id)
+    webhooks.notify("enforcement.pin_live", detail=f"Pinned live state: {new_id}")
     return AcceptDriftResponse(
         new_backup_id=new_id,
         message=f"Pinned live state as {new_id}",

@@ -19,9 +19,10 @@ from tessera.api.schemas import (
     VoterRegisterResponse,
     VoterRevokeResponse,
 )
-from tessera.deps import get_voter_registry, require_admin
+from tessera.deps import get_audit_engine, get_voter_registry, require_admin
 
 if TYPE_CHECKING:
+    from tessera.engines.audit import AuditEngine
     from tessera.engines.voter_registry import VoterRegistryEngine
 
 router = APIRouter()
@@ -172,11 +173,18 @@ async def list_pending(
     dependencies=[Depends(require_admin)],
 )
 async def approve_voter(
+    request: Request,
     name: str,
     registry: VoterRegistryEngine = Depends(get_voter_registry),
+    audit: AuditEngine = Depends(get_audit_engine),
 ) -> VoterApproveResponse:
     """Approve a pending voter registration."""
     record, psk = registry.approve_voter(name)
+    audit.record(
+        "voter.approve",
+        request.client.host if request.client else "unknown",
+        name,
+    )
 
     return VoterApproveResponse(
         voter_name=record.name,
@@ -191,11 +199,18 @@ async def approve_voter(
     dependencies=[Depends(require_admin)],
 )
 async def revoke_voter(
+    request: Request,
     name: str,
     registry: VoterRegistryEngine = Depends(get_voter_registry),
+    audit: AuditEngine = Depends(get_audit_engine),
 ) -> VoterRevokeResponse:
     """Revoke a voter."""
     record = registry.revoke_voter(name)
+    audit.record(
+        "voter.revoke",
+        request.client.host if request.client else "unknown",
+        name,
+    )
 
     return VoterRevokeResponse(
         voter_name=record.name,

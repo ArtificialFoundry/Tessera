@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
 from tessera.api.schemas import (
     BackupCreateRequest,
@@ -19,9 +19,10 @@ from tessera.api.schemas import (
     RestoreResponse,
     ScopeSnapshotResponse,
 )
-from tessera.deps import get_backup_engine, require_admin
+from tessera.deps import get_audit_engine, get_backup_engine, require_admin
 
 if TYPE_CHECKING:
+    from tessera.engines.audit import AuditEngine
     from tessera.engines.backup import BackupEngine
 
 router = APIRouter()
@@ -100,11 +101,19 @@ async def list_backups(
     dependencies=[Depends(require_admin)],
 )
 async def create_backup(
+    request: Request,
     body: BackupCreateRequest,
     engine: BackupEngine = Depends(get_backup_engine),
+    audit: AuditEngine = Depends(get_audit_engine),
 ) -> BackupManifestResponse:
     """Create a new DHCP state backup."""
     manifest = await engine.create_backup(description=body.description)
+    audit.record(
+        "backup.create",
+        request.client.host if request.client else "unknown",
+        manifest.backup_id,
+        body.description or "",
+    )
 
     return BackupManifestResponse(
         backup_id=manifest.backup_id,
@@ -138,11 +147,18 @@ async def get_backup(
     dependencies=[Depends(require_admin)],
 )
 async def delete_backup(
+    request: Request,
     backup_id: str,
     engine: BackupEngine = Depends(get_backup_engine),
+    audit: AuditEngine = Depends(get_audit_engine),
 ) -> MessageResponse:
     """Delete a stored backup."""
     engine.delete_backup(backup_id)
+    audit.record(
+        "backup.delete",
+        request.client.host if request.client else "unknown",
+        backup_id,
+    )
     return MessageResponse(message=f"Backup '{backup_id}' deleted")
 
 
@@ -152,15 +168,24 @@ async def delete_backup(
     dependencies=[Depends(require_admin)],
 )
 async def restore_backup(
+    request: Request,
     backup_id: str,
     body: RestoreRequest,
     engine: BackupEngine = Depends(get_backup_engine),
+    audit: AuditEngine = Depends(get_audit_engine),
 ) -> RestoreResponse:
     """Restore DHCP state from a backup.
 
     Default is dry_run=True (preview changes without applying).
     """
     result = await engine.restore_backup(backup_id, dry_run=body.dry_run)
+    if not body.dry_run:
+        audit.record(
+            "backup.restore",
+            request.client.host if request.client else "unknown",
+            backup_id,
+            f"{result.get('total_changes', 0)} changes applied",
+        )
 
     return RestoreResponse(
         backup_id=result["backup_id"],
