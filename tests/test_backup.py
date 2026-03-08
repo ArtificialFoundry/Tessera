@@ -35,6 +35,7 @@ def mock_active() -> AsyncMock:
                 "subnetMask": "255.255.255.0",
                 "reservedLeases": [
                     {
+                        "type": "Reserved",
                         "hardwareAddress": "AA:BB:CC:DD:EE:01",
                         "address": "10.0.0.10",
                         "hostName": "server1",
@@ -370,3 +371,122 @@ class TestBackupChecksumIntegrity:
         assert report["valid"] == 1
         assert report["corrupt"] == 1
         assert f"{m2.backup_id}.json" in report["failures"]
+
+
+class TestBackupSchemaValidation:
+    """Backup schema validation before restore."""
+
+    def test_missing_reservation_type_fails(self) -> None:
+        """Reservations without 'type' field are rejected."""
+        from tessera.engines.backup import (
+            BackupData,
+            BackupError,
+            BackupManifest,
+            ScopeSnapshot,
+            _validate_backup_schema,
+        )
+
+        backup = BackupData(
+            manifest=BackupManifest(
+                backup_id="test-123",
+                created_at=0.0,
+                source="https://test:53443",
+                description="test",
+                scope_count=1,
+                reservation_count=1,
+            ),
+            scopes=[
+                ScopeSnapshot(
+                    name="LAN",
+                    enabled=True,
+                    settings={"startingAddress": "10.0.0.1"},
+                    reservations=[
+                        {"hardwareAddress": "AA:BB:CC:DD:EE:01", "address": "10.0.0.10"}
+                    ],
+                )
+            ],
+        )
+        with pytest.raises(BackupError, match=r"missing keys.*type"):
+            _validate_backup_schema(backup)
+
+    def test_valid_backup_passes(self) -> None:
+        """Valid backup data passes validation."""
+        from tessera.engines.backup import (
+            BackupData,
+            BackupManifest,
+            ScopeSnapshot,
+            _validate_backup_schema,
+        )
+
+        backup = BackupData(
+            manifest=BackupManifest(
+                backup_id="test-123",
+                created_at=0.0,
+                source="https://test:53443",
+                description="test",
+                scope_count=1,
+                reservation_count=1,
+            ),
+            scopes=[
+                ScopeSnapshot(
+                    name="LAN",
+                    enabled=True,
+                    settings={"startingAddress": "10.0.0.1"},
+                    reservations=[
+                        {
+                            "type": "Reserved",
+                            "hardwareAddress": "AA:BB:CC:DD:EE:01",
+                            "address": "10.0.0.10",
+                        }
+                    ],
+                )
+            ],
+        )
+        _validate_backup_schema(backup)  # Should not raise
+
+    def test_empty_scopes_fails(self) -> None:
+        """Backup with no scopes is rejected."""
+        from tessera.engines.backup import (
+            BackupData,
+            BackupError,
+            BackupManifest,
+            _validate_backup_schema,
+        )
+
+        backup = BackupData(
+            manifest=BackupManifest(
+                backup_id="test-empty",
+                created_at=0.0,
+                source="https://test:53443",
+                description="test",
+                scope_count=0,
+                reservation_count=0,
+            ),
+            scopes=[],
+        )
+        with pytest.raises(BackupError, match="no scopes"):
+            _validate_backup_schema(backup)
+
+    def test_empty_scope_name_fails(self) -> None:
+        """Scope with empty name is rejected."""
+        from tessera.engines.backup import (
+            BackupData,
+            BackupError,
+            BackupManifest,
+            ScopeSnapshot,
+            _validate_backup_schema,
+        )
+
+        backup = BackupData(
+            manifest=BackupManifest(
+                backup_id="test-noname",
+                created_at=0.0,
+                source="https://test:53443",
+                description="test",
+                scope_count=1,
+                reservation_count=0,
+            ),
+            scopes=[ScopeSnapshot(name="", enabled=True, settings={}, reservations=[])],
+        )
+        with pytest.raises(BackupError, match="missing or empty 'name'"):
+            _validate_backup_schema(backup)

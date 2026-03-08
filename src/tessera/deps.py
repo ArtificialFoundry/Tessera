@@ -76,6 +76,7 @@ def get_engine_registry() -> EngineRegistry:
         failover_rounds=settings.failover_rounds,
         failback_rounds=settings.failback_rounds,
         vote_ttl=settings.vote_ttl,
+        state_file=settings.backup_dir.parent / "failover-state.json",
     )
     failover.set_pool(pool)
     registry.register(failover)

@@ -8,6 +8,7 @@ candidate DHCP scopes are activated.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from dataclasses import dataclass, field
@@ -15,9 +16,12 @@ from enum import StrEnum, auto
 from typing import TYPE_CHECKING, Any
 
 from tessera.exceptions import AuthenticationError, RateLimitError
+from tessera.fileutil import atomic_write
 from tessera.registry import Engine, EngineHealth, EngineStatus
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from tessera.engines.technitium import TechnitiumClient, TechnitiumPool
     from tessera.engines.voter_registry import VoterRegistryEngine
 
@@ -158,6 +162,7 @@ class FailoverEngine(Engine):
         vote_ttl: int = 90,
         voter_keys: dict[str, str] | None = None,
         vote_cooldown: float = 10.0,
+        state_file: Path | None = None,
     ) -> None:
         super().__init__()
         self._quorum = quorum
@@ -174,6 +179,7 @@ class FailoverEngine(Engine):
         self._transitions: list[TransitionEvent] = []
         self._last_evaluation: float = 0.0
         self._pool: TechnitiumPool | None = None
+        self._state_file = state_file
         # Legacy single-client references (kept for backward compat)
         self._candidate_client: Any = None
         self._active_client: TechnitiumClient | None = None
@@ -221,6 +227,48 @@ class FailoverEngine(Engine):
             names: DHCP scope names to enable/disable on candidate.
         """
         self._scope_names = names
+
+    async def start(self) -> None:
+        """Load persisted failover state on startup."""
+        self._load_state()
+
+    def _persist_state(self) -> None:
+        """Write current failover state to disk atomically."""
+        if not self._state_file:
+            return
+        data = json.dumps(
+            {
+                "state": self._state.value,
+                "timestamp": time.time(),
+                "consecutive_down": self._consecutive_down,
+                "consecutive_up": self._consecutive_up,
+            }
+        )
+        try:
+            atomic_write(self._state_file, data)
+        except OSError:
+            logger.exception("Failed to persist failover state to %s", self._state_file)
+
+    def _load_state(self) -> None:
+        """Restore failover state from disk if available."""
+        if not self._state_file or not self._state_file.exists():
+            return
+        try:
+            data = json.loads(self._state_file.read_text())
+            saved_state = data.get("state", "standby")
+            if saved_state == FailoverState.ACTIVE.value:
+                self._state = FailoverState.ACTIVE
+                self._consecutive_down = data.get("consecutive_down", 0)
+                self._consecutive_up = data.get("consecutive_up", 0)
+                ts = data.get("timestamp", 0)
+                logger.warning("Resuming failover state: ACTIVE from %.0f", ts)
+            else:
+                logger.info("Loaded persisted state: %s", saved_state)
+        except (json.JSONDecodeError, OSError, KeyError):
+            logger.warning(
+                "Corrupt or unreadable failover state file %s — defaulting to STANDBY",
+                self._state_file,
+            )
 
     def update_voter_keys(self, keys: dict[str, str]) -> None:
         """Atomically swap the voter PSK map.
@@ -556,6 +604,7 @@ class FailoverEngine(Engine):
             self._transitions.append(event)
             logger.warning("FAILOVER ACTIVATED: %s", event.reason)
             await self._do_failover()
+            self._persist_state()
 
         elif (
             self._state == FailoverState.ACTIVE
@@ -574,6 +623,7 @@ class FailoverEngine(Engine):
             self._transitions.append(event)
             logger.info("FAILBACK: returned to candidate: %s", event.reason)
             await self._do_failback()
+            self._persist_state()
 
         return {
             "state": self._state.value,

@@ -62,6 +62,7 @@ class ConfigWatcherEngine(Engine):
         self._reload_count: int = 0
         self._last_reload: float = 0.0
         self._last_error: str = ""
+        self._consecutive_parse_errors: int = 0
         self._sighup_task: asyncio.Task[None] | None = None
 
         # Engines to notify on changes
@@ -180,9 +181,29 @@ class ConfigWatcherEngine(Engine):
             self._reload_count += 1
             self._last_reload = time.time()
             self._last_error = ""
-        except Exception as exc:
+            self._consecutive_parse_errors = 0
+        except json.JSONDecodeError as exc:
+            self._consecutive_parse_errors += 1
+            self._last_error = f"Parse error in {path.name}: {exc}"
+            logger.error(
+                "Failed to parse %s (attempt %d): %s",
+                path,
+                self._consecutive_parse_errors,
+                exc,
+            )
+        except (OSError, ValueError, TypeError, KeyError) as exc:
+            self._consecutive_parse_errors += 1
             self._last_error = f"Failed to reload {path.name}: {exc}"
-            logger.exception("Failed to reload config file: %s", path)
+            logger.error(
+                "Failed to reload %s (attempt %d): %s",
+                path,
+                self._consecutive_parse_errors,
+                exc,
+            )
+        except Exception as exc:
+            self._consecutive_parse_errors += 1
+            self._last_error = f"Failed to reload {path.name}: {exc}"
+            logger.exception("Unexpected error reloading config file: %s", path)
 
     async def _reload_servers(self, path: Path) -> None:
         """Reload server configs from JSON file."""
@@ -191,8 +212,8 @@ class ConfigWatcherEngine(Engine):
         text = path.read_text()
         raw = json.loads(text)
         if not isinstance(raw, list):
-            logger.error("servers file is not a JSON array: %s", path)
-            return
+            msg = f"servers file is not a JSON array: {path}"
+            raise ValueError(msg)
 
         servers = [DhcpServer(**s) for s in raw]
         if self._pool:
@@ -215,9 +236,15 @@ class ConfigWatcherEngine(Engine):
 
     async def check_health(self) -> EngineHealth:
         """Return watcher health."""
-        if self._last_error:
+        if self._consecutive_parse_errors >= 3:
             self.health.status = EngineStatus.DEGRADED
-            self.health.message = self._last_error
+            self.health.message = (
+                f"{self._consecutive_parse_errors} consecutive config parse failures: "
+                f"{self._last_error}"
+            )
+        elif self._last_error:
+            self.health.status = EngineStatus.RUNNING
+            self.health.message = f"Last error: {self._last_error}"
         else:
             self.health.status = EngineStatus.RUNNING
             self.health.message = f"{self._reload_count} reloads"
@@ -231,4 +258,5 @@ class ConfigWatcherEngine(Engine):
             "check_interval": self._check_interval,
             "watched_files": len(list(self._watched_paths())),
             "last_error": self._last_error,
+            "consecutive_parse_errors": self._consecutive_parse_errors,
         }

@@ -108,6 +108,55 @@ class BackupData:
         return cls(manifest=manifest, scopes=scopes)
 
 
+_REQUIRED_RESERVATION_KEYS = {"type", "hardwareAddress", "address"}
+
+
+def _validate_backup_schema(backup: BackupData) -> None:
+    """Validate structural integrity of backup data before restore.
+
+    Args:
+        backup: The backup data to validate.
+
+    Raises:
+        BackupError: If any scope or reservation is structurally invalid.
+    """
+    errors: list[str] = []
+
+    if not backup.scopes:
+        errors.append("Backup contains no scopes")
+
+    for i, scope in enumerate(backup.scopes):
+        prefix = f"scope[{i}]"
+        if not scope.name or not isinstance(scope.name, str):
+            errors.append(f"{prefix}: missing or empty 'name'")
+        else:
+            prefix = f"scope '{scope.name}'"
+
+        if not isinstance(scope.settings, dict):
+            errors.append(f"{prefix}: 'settings' is not a dict")
+
+        if not isinstance(scope.reservations, list):
+            errors.append(f"{prefix}: 'reservations' is not a list")
+            continue
+
+        for j, res in enumerate(scope.reservations):
+            if not isinstance(res, dict):
+                errors.append(f"{prefix}: reservation[{j}] is not a dict")
+                continue
+            missing = _REQUIRED_RESERVATION_KEYS - res.keys()
+            if missing:
+                errors.append(
+                    f"{prefix}: reservation[{j}] missing keys: "
+                    f"{', '.join(sorted(missing))}"
+                )
+
+    if errors:
+        raise BackupError(
+            f"Backup {backup.manifest.backup_id} failed schema validation: "
+            + "; ".join(errors)
+        )
+
+
 class BackupEngine(Engine):
     """DHCP state backup engine with retention management.
 
@@ -512,6 +561,7 @@ class BackupEngine(Engine):
             raise BackupError("Primary client not configured")
 
         backup = await self.get_backup(backup_id)
+        _validate_backup_schema(backup)
 
         # Create pre-restore snapshot for rollback (skip on dry_run)
         pre_restore_backup_id: str | None = None

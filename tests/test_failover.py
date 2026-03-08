@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import time
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 import pytest
 
@@ -148,3 +153,119 @@ class TestVoteSignatureVerification:
 
         source = inspect.getsource(verify_vote_signature)
         assert "hmac.compare_digest" in source
+
+
+class TestFailoverStatePersistence:
+    """Failover state persistence across restarts."""
+
+    def test_state_file_created_on_failover(
+        self, voter_keys: dict[str, str], tmp_path: Path
+    ) -> None:
+        """State file is written when failover activates."""
+        state_file = tmp_path / "failover-state.json"
+        engine = FailoverEngine(
+            quorum=1,
+            failover_rounds=1,
+            failback_rounds=1,
+            vote_ttl=90,
+            voter_keys=voter_keys,
+            vote_cooldown=0,
+            state_file=state_file,
+        )
+        ts = int(time.time())
+        sig = _sign("voter-1", "down", ts, voter_keys["voter-1"])
+        engine.submit_vote("voter-1", "down", ts, sig)
+
+        import asyncio
+
+        asyncio.get_event_loop().run_until_complete(engine.evaluate_quorum())
+
+        assert state_file.exists()
+        data = json.loads(state_file.read_text())
+        assert data["state"] == "active"
+
+    def test_state_restored_on_start(
+        self, voter_keys: dict[str, str], tmp_path: Path
+    ) -> None:
+        """Engine resumes ACTIVE state from persisted file."""
+        state_file = tmp_path / "failover-state.json"
+        state_file.write_text(
+            json.dumps(
+                {
+                    "state": "active",
+                    "timestamp": time.time(),
+                    "consecutive_down": 0,
+                    "consecutive_up": 0,
+                }
+            )
+        )
+        engine = FailoverEngine(
+            quorum=1,
+            failover_rounds=1,
+            failback_rounds=1,
+            vote_ttl=90,
+            voter_keys=voter_keys,
+            vote_cooldown=0,
+            state_file=state_file,
+        )
+        import asyncio
+
+        asyncio.get_event_loop().run_until_complete(engine.start())
+        assert engine.state == FailoverState.ACTIVE
+
+    def test_corrupt_state_file_defaults_to_standby(
+        self, voter_keys: dict[str, str], tmp_path: Path
+    ) -> None:
+        """Corrupt state file gracefully defaults to STANDBY."""
+        state_file = tmp_path / "failover-state.json"
+        state_file.write_text("not json{{{")
+        engine = FailoverEngine(
+            quorum=1,
+            failover_rounds=1,
+            failback_rounds=1,
+            vote_ttl=90,
+            voter_keys=voter_keys,
+            vote_cooldown=0,
+            state_file=state_file,
+        )
+        import asyncio
+
+        asyncio.get_event_loop().run_until_complete(engine.start())
+        assert engine.state == FailoverState.STANDBY
+
+    def test_missing_state_file_defaults_to_standby(
+        self, voter_keys: dict[str, str], tmp_path: Path
+    ) -> None:
+        """Missing state file gracefully defaults to STANDBY."""
+        state_file = tmp_path / "failover-state.json"
+        engine = FailoverEngine(
+            quorum=1,
+            failover_rounds=1,
+            failback_rounds=1,
+            vote_ttl=90,
+            voter_keys=voter_keys,
+            vote_cooldown=0,
+            state_file=state_file,
+        )
+        import asyncio
+
+        asyncio.get_event_loop().run_until_complete(engine.start())
+        assert engine.state == FailoverState.STANDBY
+
+    def test_no_state_file_configured(
+        self,
+        voter_keys: dict[str, str],
+    ) -> None:
+        """Engine works without state_file configured."""
+        engine = FailoverEngine(
+            quorum=1,
+            failover_rounds=1,
+            failback_rounds=1,
+            vote_ttl=90,
+            voter_keys=voter_keys,
+            vote_cooldown=0,
+        )
+        import asyncio
+
+        asyncio.get_event_loop().run_until_complete(engine.start())
+        assert engine.state == FailoverState.STANDBY
