@@ -27,6 +27,6 @@ RUN useradd -r -s /usr/sbin/nologin tessera && \
     chmod -R a+rX /app
 USER tessera
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8780/api/v1/ping')"]
+    CMD ["python", "-c", "import os,urllib.request; urllib.request.urlopen(f'http://127.0.0.1:{os.environ.get(\"TESSERA_PORT\",\"8780\")}/api/v1/ping')"]
 EXPOSE 8780
-CMD ["uvicorn", "tessera.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8780"]
+CMD ["sh", "-c", "uvicorn tessera.app:create_app --factory --host ${TESSERA_HOST:-0.0.0.0} --port ${TESSERA_PORT:-8780}"]

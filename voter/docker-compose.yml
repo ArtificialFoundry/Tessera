@@ -10,7 +10,8 @@
 # voter.conf example:
 #   VOTER_NAME="voter-1"
 #   VOTER_PSK="<hex-psk>"
-#   TESSERA_URL="http://tessera-host:8780"
+#   TESSERA_URL="https://tessera.example.com"
+#   TESSERA_CA_CERT="/etc/tessera/ca.pem"
 #   CHECK_TIMEOUT="5"
 #   DHCP_TIMEOUT="5"
 #   DHCP_INTERFACE="eth0"

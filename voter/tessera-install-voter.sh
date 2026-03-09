@@ -6,7 +6,7 @@
 #
 # Usage:
 #   sudo ./tessera-install-voter.sh \
-#     --tessera-url http://tessera:8780 \
+#     --tessera-url https://tessera.example.com \
 #     --token <registration-token>
 set -euo pipefail
 
@@ -48,7 +48,7 @@ USAGE:
   sudo ./tessera-install-voter.sh [OPTIONS]
 
 REQUIRED:
-  --tessera-url URL        Tessera API URL (e.g. http://192.168.1.10:8780)
+  --tessera-url URL        Tessera API URL (e.g. https://tessera.example.com)
   --token TOKEN            One-time registration token (from Tessera admin UI)
 
 OPTIONAL:
@@ -62,11 +62,11 @@ OPTIONAL:
 EXAMPLES:
   # First-time setup:
   sudo ./tessera-install-voter.sh \
-    --tessera-url http://192.168.1.10:8780 \
+    --tessera-url https://tessera.example.com \
     --token eyJhbGciOi...
 
   # Re-run (uses existing config):
-  sudo ./tessera-install-voter.sh --tessera-url http://192.168.1.10:8780
+  sudo ./tessera-install-voter.sh --tessera-url https://tessera.example.com
 
   # Rotate PSK:
   sudo ./tessera-install-voter.sh --rotate-key
@@ -164,7 +164,7 @@ do_register() {
     _info "Registering '$VOTER_NAME'..."
 
     local resp code body
-    resp=$(curl -sk --max-time 10 -w '\n%{http_code}' \
+    resp=$(curl -s --max-time 10 -w '\n%{http_code}' \
         -X POST "$TESSERA_URL/api/v1/voters/register" \
         -H "Content-Type: application/json" \
         -d "{\"name\":\"$VOTER_NAME\",\"token\":\"$REGISTRATION_TOKEN\"}" \
@@ -198,7 +198,7 @@ do_register() {
         while [[ $elapsed -lt $WAIT_APPROVAL ]]; do
             sleep 5; elapsed=$((elapsed + 5))
             local pr pc pb vs
-            pr=$(curl -sk --max-time 5 -w '\n%{http_code}' \
+            pr=$(curl -s --max-time 5 -w '\n%{http_code}' \
                 "$TESSERA_URL/api/v1/voters" 2>/dev/null) || continue
             pc=$(echo "$pr" | tail -1); pb=$(echo "$pr" | sed '$d')
             [[ "$pc" == "200" ]] || continue
@@ -222,7 +222,7 @@ do_rotate_key() {
     [[ -z "$TESSERA_URL" ]] && _die "--tessera-url required"
 
     local resp code body
-    resp=$(curl -sk --max-time 10 -w '\n%{http_code}' \
+    resp=$(curl -s --max-time 10 -w '\n%{http_code}' \
         -X POST "$TESSERA_URL/api/v1/voters/$VOTER_NAME/rotate-key" \
         -H "Content-Type: application/json" 2>/dev/null) || _die "Cannot reach Tessera"
 
@@ -332,7 +332,7 @@ setup_cron() {
 validate() {
     _info "Validating..."
     local code
-    code=$(curl -sk --max-time 5 -o /dev/null -w '%{http_code}' \
+    code=$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' \
         "$TESSERA_URL/api/v1/ping" 2>/dev/null || echo "000")
     [[ "$code" == "200" ]] && _log "Tessera reachable" || _warn "Tessera unreachable (HTTP $code)"
 

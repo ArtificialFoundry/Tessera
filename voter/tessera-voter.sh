@@ -4,7 +4,8 @@
 # Config: /etc/tessera/voter.conf
 #   VOTER_NAME     — Voter identifier (required)
 #   VOTER_PSK      — Pre-shared key for HMAC signing (required)
-#   TESSERA_URL    — Tessera API base URL (required)
+#   TESSERA_URL    — Tessera API base URL (required, should be HTTPS)
+#   TESSERA_CA_CERT — Path to CA cert for TLS verification (optional)
 #   CHECK_TIMEOUT  — HTTP check timeout in seconds (default: 5)
 #   DHCP_TIMEOUT   — nmap DHCP broadcast probe timeout in seconds (default: CHECK_TIMEOUT)
 #   DHCP_INTERFACE — for nmap DHCP probe (default: auto-detect)
@@ -32,7 +33,7 @@ while IFS='=' read -r key val; do
     key=$(echo "$key" | xargs)
     val=$(echo "$val" | sed 's/^["'"'"']//' | sed 's/["'"'"']$//')
     case "$key" in
-        VOTER_NAME|VOTER_PSK|TESSERA_URL|CHECK_TIMEOUT|DHCP_TIMEOUT|DHCP_INTERFACE)
+        VOTER_NAME|VOTER_PSK|TESSERA_URL|TESSERA_CA_CERT|CHECK_TIMEOUT|DHCP_TIMEOUT|DHCP_INTERFACE)
             export "$key=$val" ;;
     esac
 done < "$CONF"
@@ -43,6 +44,12 @@ done < "$CONF"
 : "${CHECK_TIMEOUT:=5}"
 : "${DHCP_TIMEOUT:=$CHECK_TIMEOUT}"
 : "${DHCP_INTERFACE:=}"
+
+# TLS options — use CA cert if provided, otherwise reject self-signed
+CURL_TLS=(-s)
+if [[ -n "${TESSERA_CA_CERT:-}" && -f "$TESSERA_CA_CERT" ]]; then
+    CURL_TLS+=("--cacert" "$TESSERA_CA_CERT")
+fi
 
 # ── Submit vote ──────────────────────────────────────────────────────────────
 _submit_vote() {
@@ -59,7 +66,7 @@ _submit_vote() {
     [[ -n "$dhcp_s" ]] && payload="${payload},\"dhcp_status\":\"${dhcp_s}\""
     payload="${payload}}"
 
-    curl -sk --max-time 10 \
+    curl "${CURL_TLS[@]}" --max-time 10 \
         -X POST "${TESSERA_URL}/api/v1/vote" \
         -H "Content-Type: application/json" \
         -d "$payload" \
@@ -68,7 +75,7 @@ _submit_vote() {
 }
 
 # ── Fetch active server from Tessera ─────────────────────────────────────────
-SERVERS_JSON=$(curl -sk --max-time "$CHECK_TIMEOUT" \
+SERVERS_JSON=$(curl "${CURL_TLS[@]}" --max-time "$CHECK_TIMEOUT" \
     "${TESSERA_URL}/api/v1/servers" 2>/dev/null) || {
     echo "ERROR: Cannot reach Tessera at $TESSERA_URL" >&2
     exit 1
@@ -115,7 +122,7 @@ _check_dhcp() {
 
 _check_http() {
     local code
-    code=$(curl -sk --max-time "$CHECK_TIMEOUT" \
+    code=$(curl "${CURL_TLS[@]}" --max-time "$CHECK_TIMEOUT" \
         "https://${ACTIVE_IP}:${ACTIVE_PORT}/api/dhcp/scopes/list?token=dummy" \
         -o /dev/null -w '%{http_code}' 2>/dev/null || echo "000")
     echo "$code" | grep -qE '^(200|401|403)$'

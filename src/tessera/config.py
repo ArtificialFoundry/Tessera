@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import logging
-import warnings
 from pathlib import Path
 from typing import Literal
 
@@ -44,22 +43,20 @@ class Settings(BaseSettings):
         debug: Enable debug mode.
         host: Bind address for uvicorn.
         port: Bind port for uvicorn.
-        primary_url: (DEPRECATED) Technitium primary server URL.
-        standby_url: (DEPRECATED) Technitium standby server URL.
         servers: JSON list of DhcpServer configs (parsed from env).
         servers_file: Path to JSON file with server list.
         api_token_file: Path to file containing Technitium API token.
-        voter_keys_file: (DEPRECATED) Path to JSON file mapping voter names to PSKs.
-            The voter registry engine now manages this file directly.
+        voter_keys_file: Voter keys JSON path (voter registry engine).
         quorum: Minimum votes required for quorum.
         failover_rounds: Consecutive failed rounds before failover.
         failback_rounds: Consecutive healthy rounds before failback.
         vote_ttl: Seconds before a vote expires.
         sync_interval: Seconds between scope sync runs.
-        voters: Comma-separated list of expected voter names.
         config_reload_interval: Seconds between config file change checks.
         registration_token: Token for voter self-registration API.
         registration_token_file: Path to file containing registration token.
+        registration_token_ttl: Seconds before a registration token expires.
+        psk_grace_period: Seconds to keep old PSK valid after rotation.
         auto_approve_voters: Automatically approve voter registrations.
         voter_registry_file: Path to voter registration metadata file.
     """
@@ -75,12 +72,8 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8780
 
-    # Legacy (deprecated) — kept for backward compatibility
-    primary_url: str = ""
-    standby_url: str = ""
-
     # Multi-server config
-    servers: str = ""  # JSON string parsed in validator
+    servers: str = ""  # JSON string parsed in get_servers()
     servers_file: Path = Path("/etc/tessera/servers.json")
 
     api_token_file: Path = Path("/etc/tessera/token")
@@ -90,7 +83,6 @@ class Settings(BaseSettings):
     failback_rounds: int = 5
     vote_ttl: int = 90
     sync_interval: int = 300
-    voters: str = "voter-1,voter-2,voter-3,voter-4,voter-5"
     backup_dir: Path = Path("/var/lib/tessera/backups")
     backup_encryption_key: str = ""
     webhook_urls: str = ""
@@ -118,21 +110,18 @@ class Settings(BaseSettings):
     ca_cert_file: str = ""
     skip_tls_verify: bool = False
 
-    @property
-    def voter_list(self) -> list[str]:
-        """Return voters as a list of names."""
-        return [v.strip() for v in self.voters.split(",") if v.strip()]
-
     def get_servers(self) -> list[DhcpServer]:
         """Resolve the DHCP server list from all config sources.
 
         Priority:
         1. ``TESSERA_SERVERS`` env var (JSON string)
         2. ``TESSERA_SERVERS_FILE`` (JSON file)
-        3. Legacy ``TESSERA_PRIMARY_URL`` + ``TESSERA_STANDBY_URL``
 
         Returns:
             List of DhcpServer configs.
+
+        Raises:
+            RuntimeError: If no servers can be resolved from any source.
         """
         # 1. Inline JSON
         if self.servers:
@@ -150,54 +139,10 @@ class Settings(BaseSettings):
             except (json.JSONDecodeError, TypeError, ValueError) as exc:
                 logger.error("Failed to parse %s: %s", self.servers_file, exc)
 
-        # 3. Legacy fallback
-        if self.primary_url or self.standby_url:
-            warnings.warn(
-                "TESSERA_PRIMARY_URL / TESSERA_STANDBY_URL are deprecated. "
-                "Use TESSERA_SERVERS or TESSERA_SERVERS_FILE instead.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            logger.warning(
-                "DEPRECATED: Using legacy primary_url/standby_url config. "
-                "Migrate to TESSERA_SERVERS or TESSERA_SERVERS_FILE."
-            )
-            result: list[DhcpServer] = []
-            if self.primary_url:
-                result.append(
-                    DhcpServer(
-                        name="active",
-                        url=self.primary_url,
-                        role="active",
-                        priority=0,
-                    )
-                )
-            if self.standby_url:
-                result.append(
-                    DhcpServer(
-                        name="candidate",
-                        url=self.standby_url,
-                        role="candidate",
-                        priority=10,
-                    )
-                )
-            return result
-
-        # Default
-        return [
-            DhcpServer(
-                name="active",
-                url="https://192.0.2.1:53443",
-                role="active",
-                priority=0,
-            ),
-            DhcpServer(
-                name="candidate",
-                url="https://192.0.2.2:53443",
-                role="candidate",
-                priority=10,
-            ),
-        ]
+        raise RuntimeError(
+            "No DHCP servers configured. Set TESSERA_SERVERS (JSON string) "
+            "or TESSERA_SERVERS_FILE (path to JSON file)."
+        )
 
     def get_registration_token(self) -> str:
         """Resolve the registration token from env or file.

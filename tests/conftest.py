@@ -2,6 +2,14 @@
 
 from __future__ import annotations
 
+import os
+
+# Set test defaults before any Settings() is instantiated via lru_cache.
+os.environ.setdefault(
+    "TESSERA_SERVERS",
+    '[{"name":"test","url":"https://192.0.2.1:53443","role":"active"}]',
+)
+
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 

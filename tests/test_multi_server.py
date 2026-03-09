@@ -229,20 +229,15 @@ class TestServersAPI:
 class TestConfigBackwardCompat:
     """DhcpServer config backward compatibility with legacy URL fields."""
 
-    def test_legacy_urls_create_active_and_candidate(self) -> None:
-        import warnings
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            settings = Settings(
-                primary_url="https://dns-1:53443",
-                standby_url="https://dns-2:53443",
-                servers="",
-            )
-            servers = settings.get_servers()
-        assert len(servers) == 2
-        assert servers[0].role == "active"
-        assert servers[1].role == "candidate"
+    def test_no_servers_raises_runtime_error(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.delenv("TESSERA_SERVERS", raising=False)
+        settings = Settings(
+            servers="",
+        )
+        with pytest.raises(RuntimeError, match="No DHCP servers configured"):
+            settings.get_servers()
 
     def test_servers_json_string_parsed_correctly(self) -> None:
         servers_json = json.dumps(

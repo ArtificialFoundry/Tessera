@@ -37,10 +37,10 @@ class TestPinLive:
             await engine.pin_live()
 
 
-@pytest.mark.asyncio
 class TestQuorumAlerting:
     """Tests for failover quorum unreachable tracking."""
 
+    @pytest.mark.asyncio
     async def test_quorum_reached_tracking(self) -> None:
         from unittest.mock import patch as _patch
 
@@ -74,6 +74,7 @@ class TestQuorumAlerting:
         assert engine._last_quorum_reached > 0
         assert not engine._quorum_warned
 
+    @pytest.mark.asyncio
     async def test_quorum_warning_in_health(self) -> None:
         from tessera.engines.failover import FailoverEngine
 

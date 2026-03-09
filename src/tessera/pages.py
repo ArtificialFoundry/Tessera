@@ -70,12 +70,11 @@ def _scan_assets() -> dict[str, dict[str, str]]:
     return assets
 
 
-def _ctx(request: Request, tab: str) -> dict[str, object]:
+def _ctx(tab: str) -> dict[str, object]:
     """Build template context with resolved asset paths."""
     asset_map = _build_asset_map()
     entry = asset_map.get(tab, {})
     return {
-        "request": request,
         "active_tab": tab,
         "js": entry.get("js", ""),
         "css": entry.get("css", ""),
@@ -87,28 +86,28 @@ def _ctx(request: Request, tab: str) -> dict[str, object]:
 @router.get("/failover", response_class=HTMLResponse, include_in_schema=False)
 async def failover_page(request: Request) -> HTMLResponse:
     """Render the failover dashboard page."""
-    return templates.TemplateResponse("page.html", _ctx(request, "failover"))
+    return templates.TemplateResponse(request, "page.html", _ctx("failover"))
 
 
 @router.get("/dhcp", response_class=HTMLResponse, include_in_schema=False)
 async def dhcp_page(request: Request) -> HTMLResponse:
     """Render the DHCP management page."""
-    return templates.TemplateResponse("page.html", _ctx(request, "dhcp"))
+    return templates.TemplateResponse(request, "page.html", _ctx("dhcp"))
 
 
 @router.get("/protection", response_class=HTMLResponse, include_in_schema=False)
 async def protection_page(request: Request) -> HTMLResponse:
     """Render the protection (backup/enforcement) page."""
-    return templates.TemplateResponse("page.html", _ctx(request, "protection"))
+    return templates.TemplateResponse(request, "page.html", _ctx("protection"))
 
 
 @router.get("/servers", response_class=HTMLResponse, include_in_schema=False)
 async def servers_page(request: Request) -> HTMLResponse:
     """Render the servers management page."""
-    return templates.TemplateResponse("page.html", _ctx(request, "servers"))
+    return templates.TemplateResponse(request, "page.html", _ctx("servers"))
 
 
 @router.get("/voters", response_class=HTMLResponse, include_in_schema=False)
 async def voters_page(request: Request) -> HTMLResponse:
     """Render the voter management page."""
-    return templates.TemplateResponse("page.html", _ctx(request, "voters"))
+    return templates.TemplateResponse(request, "page.html", _ctx("voters"))

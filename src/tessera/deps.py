@@ -119,8 +119,8 @@ def get_engine_registry() -> EngineRegistry:
         reg_tokens_file=reg_tokens_file,
         static_registration_token=settings.get_registration_token(),
         auto_approve=settings.auto_approve_voters,
-        token_ttl=getattr(settings, "registration_token_ttl", 3600),
-        psk_grace_period=getattr(settings, "psk_grace_period", 60),
+        token_ttl=settings.registration_token_ttl,
+        psk_grace_period=settings.psk_grace_period,
     )
     voter_registry.set_on_keys_changed(failover.update_voter_keys)
     failover.set_voter_registry(voter_registry)
